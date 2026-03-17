@@ -1,0 +1,25 @@
+node_modules
+.env
+.env.*
+dist
+build
+coverage
+
+# logs
+logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+*.pid
+
+# Python
+__pycache__/
+venv/
+
+# IDE
+.vscode
+.idea
