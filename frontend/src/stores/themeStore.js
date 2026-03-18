@@ -1,31 +1,35 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { settingsApi } from '../services/api.js';
-import { useAuthStore } from './authStore.js';
+
+const applyThemeToDom = (theme, systemTheme) => {
+  if (typeof document === 'undefined') return;
+
+  const html = document.documentElement;
+  const resolvedTheme = theme === 'system' ? systemTheme : theme;
+
+  html.classList.toggle('dark', resolvedTheme === 'dark');
+  html.setAttribute('data-theme', resolvedTheme);
+};
+
+const detectSystemThemeValue = () => {
+  if (typeof window === 'undefined') return 'dark';
+  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+};
 
 export const useThemeStore = create(
   persist(
     (set, get) => ({
       // State
       theme: 'dark', // dark | light | system
-      systemTheme: 'dark', // detectado del OS
-      
+      systemTheme: detectSystemThemeValue(),
+
       // Actions
+      setTheme: (newTheme) => {
+        const nextSystemTheme = get().systemTheme || detectSystemThemeValue();
+        set({ theme: newTheme, systemTheme: nextSystemTheme });
+        applyThemeToDom(newTheme, nextSystemTheme);
+      },
 
-  setTheme: (newTheme) => {
-    set({ theme: newTheme });
-    
-    // Apply immediately to DOM
-    const html = document.documentElement;
-    if (newTheme === 'system') {
-      const systemPref = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      html.classList.toggle('dark', systemPref === 'dark');
-    } else {
-      html.classList.toggle('dark', newTheme === 'dark');
-    }
-  },
-
-      
       toggleTheme: () => {
         const current = get().theme;
         const next = {
@@ -37,46 +41,51 @@ export const useThemeStore = create(
       },
 
       detectSystemTheme: () => {
-        const dark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        const systemTheme = dark ? 'dark' : 'light';
+        const systemTheme = detectSystemThemeValue();
         set({ systemTheme });
+
+        if (get().theme === 'system') {
+          applyThemeToDom('system', systemTheme);
+        }
+
         return systemTheme;
       },
 
       syncFromPreferences: async (preferences) => {
         if (preferences.theme) {
-          set({ theme: preferences.theme });
           get().setTheme(preferences.theme);
         }
       },
 
       // Listen to system changes
       initSystemListener: () => {
+        if (typeof window === 'undefined') return () => {};
+
         const mql = window.matchMedia('(prefers-color-scheme: dark)');
-        const updateTheme = (e) => {
-          const currentTheme = get().theme;
-          if (currentTheme === 'system') {
-            get().setTheme('system');
-          }
+        const updateTheme = () => {
+          get().detectSystemTheme();
         };
+
         mql.addEventListener('change', updateTheme);
         return () => mql.removeEventListener('change', updateTheme);
       },
+
+      initTheme: () => {
+        const systemTheme = get().detectSystemTheme();
+        applyThemeToDom(get().theme, systemTheme);
+      },
     }),
-    
+
     {
       name: 'mangavault-theme',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({ theme: state.theme }),
-      
+
       // Rehydrate + sync con DB
       onRehydrateStorage: () => (state, error) => {
         if (error) console.error('ThemeStore rehydrate error:', error);
-        
-        // Detect system theme
-        state?.detectSystemTheme();
-        
-        // Init system listener
+
+        state?.initTheme();
         state?.initSystemListener();
       }
     }
@@ -96,4 +105,3 @@ export const useThemeToggle = () => {
   const effectiveTheme = useEffectiveTheme();
   return { toggleTheme, effectiveTheme };
 };
-

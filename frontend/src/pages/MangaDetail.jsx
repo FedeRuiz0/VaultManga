@@ -22,15 +22,27 @@ export default function MangaDetail() {
   const navigate = useNavigate();
   const [sortOrder, setSortOrder] = useState('asc');
 
-  const { data: mangaData, isLoading: mangaLoading } = useQuery(
-    ['manga', id],
-    () => mangaApi.getById(id)
-  );
+  const {
+    data: mangaData,
+    isLoading: mangaLoading,
+    isError: mangaError,
+    error: mangaErrorDetails,
+  } = useQuery({
+    queryKey: ['manga', id],
+    queryFn: () => mangaApi.getById(id),
+    enabled: !!id,
+  });
 
-  const { data: chaptersData, isLoading: chaptersLoading } = useQuery(
-    ['chapters', id, sortOrder],
-    () => chapterApi.getByManga(id, sortOrder)
-  );
+  const {
+    data: chaptersData,
+    isLoading: chaptersLoading,
+    isError: chaptersError,
+    error: chaptersErrorDetails,
+  } = useQuery({
+    queryKey: ['chapters', id, sortOrder],
+    queryFn: () => chapterApi.getByManga(id, sortOrder),
+    enabled: !!id,
+  });
 
   const manga = mangaData?.data || mangaData; 
   const chapters = chaptersData?.data || chaptersData || [];
@@ -59,6 +71,23 @@ export default function MangaDetail() {
 
   if (mangaLoading || chaptersLoading) {
     return <LoadingScreen />;
+  }
+
+  if (mangaError || chaptersError) {
+    return (
+      <div className="text-center py-16 space-y-3">
+        <h2 className="text-xl font-semibold">Unable to load manga details</h2>
+        <p className="text-gray-400">
+          {mangaErrorDetails?.message || chaptersErrorDetails?.message || 'Please try again.'}
+        </p>
+        <button
+          onClick={() => navigate('/library')}
+          className="mt-2 text-primary-400 hover:text-primary-300"
+        >
+          Back to Library
+        </button>
+      </div>
+    );
   }
 
   if (!manga) {
@@ -327,4 +356,3 @@ export default function MangaDetail() {
     </div>
   );
 }
-

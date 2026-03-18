@@ -5,7 +5,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import './index.css';
 import App from './App.jsx';
-import { useAuthStore } from './stores/authStore';
 import { useThemeStore } from './stores/themeStore.js';
 
 const queryClient = new QueryClient({
@@ -38,8 +37,5 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   </React.StrictMode>,
 );
 
-// Init theme store after DOM ready
-document.addEventListener('DOMContentLoaded', () => {
-  useThemeStore.getState().detectSystemTheme();
-});
+useThemeStore.getState().initTheme();
 

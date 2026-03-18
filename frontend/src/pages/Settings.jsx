@@ -34,16 +34,17 @@ export default function Settings() {
   const { user } = useAuthStore();
   const queryClient = useQueryClient();
 
-  const { data: preferences, isLoading } = useQuery(
-    'userPreferences',
-    () => settingsApi.get()
-  );
+  const { data: preferences, isLoading } = useQuery({
+    queryKey: ['userPreferences'],
+    queryFn: () => settingsApi.get(),
+  });
 
+<<<<<<< ours
   const updateSettingsMutation = useMutation(
     (data) => settingsApi.update(data),
     {
       onSuccess: () => {
-        queryClient.invalidateQueries('userPreferences');
+        queryClient.invalidateQueries({ queryKey: ['userPreferences'] });
       }
     }
   );
@@ -52,10 +53,31 @@ export default function Settings() {
     () => settingsApi.reset(),
     {
       onSuccess: () => {
-        queryClient.invalidateQueries('userPreferences');
+        queryClient.invalidateQueries({ queryKey: ['userPreferences'] });
       }
     }
   );
+=======
+  const updateSettingsMutation = useMutation({
+    mutationFn: (data) => settingsApi.update(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['userPreferences'] });
+    },
+  });
+
+  const resetSettingsMutation = useMutation({
+    mutationFn: () => settingsApi.reset(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['userPreferences'] });
+    },
+  });
+>>>>>>> theirs
+
+  useEffect(() => {
+    if (preferences?.data?.theme) {
+      useThemeStore.getState().syncFromPreferences(preferences.data);
+    }
+  }, [preferences?.data?.theme]);
 
   if (isLoading) {
     return <LoadingScreen />;
@@ -127,9 +149,9 @@ function ProfileSettings({ user }) {
   const [username, setUsername] = useState(user?.username || '');
   const [email, setEmail] = useState(user?.email || '');
 
-  const updateProfileMutation = useMutation(
-    (data) => authApi.updateProfile(data)
-  );
+  const updateProfileMutation = useMutation({
+    mutationFn: (data) => authApi.updateProfile(data),
+  });
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -163,7 +185,7 @@ function ProfileSettings({ user }) {
 
         <button
           type="submit"
-          disabled={updateProfileMutation.isLoading}
+          disabled={updateProfileMutation.isPending}
           className="flex items-center gap-2 px-6 py-3 bg-primary-600 hover:bg-primary-500 disabled:opacity-50 rounded-xl font-medium transition-colors"
         >
           <Save className="w-5 h-5" />

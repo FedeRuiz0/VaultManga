@@ -40,9 +40,14 @@ html {
 
 body {
   font-family: 'Inter', system-ui, sans-serif;
+  background-color: #f9fafb;
+  color: #111827;
+  min-height: 100vh;
+}
+
+html.dark body {
   background-color: var(--color-bg-dark);
   color: #fafafa;
-  min-height: 100vh;
 }
 
 /* Custom utilities */
