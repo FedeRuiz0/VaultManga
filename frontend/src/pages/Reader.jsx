@@ -1,15 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  ArrowLeft,
-  ChevronLeft,
-  ChevronRight,
-  Settings,
-  X,
-  Maximize,
-  Minimize,
   Loader2
 } from 'lucide-react';
 import { chapterApi, pageApi, libraryApi } from '../services/api';
@@ -22,15 +15,13 @@ export default function Reader() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const [showControls, setShowControls] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const [isLoadingPage, setIsLoadingPage] = useState(true);
 
   const hasMarkedRead = useRef(false);
 
-  const [settings, setSettings] = useState({
+  const [settings] = useState({
     backgroundColor: '#0a0a0a',
     fitMode: 'width',
     showPageNumber: true,
@@ -41,166 +32,51 @@ export default function Reader() {
   const containerRef = useRef(null);
   const pageRefs = useRef([]);
 
-  // Fetch chapter
-<<<<<<< ours
-  const { data: chapterData, isLoading: chapterLoading } = useQuery({
-    queryKey: ['chapter', chapterId],
-    queryFn: () => chapterApi.getById(chapterId),
-    enabled: !!chapterId,
-  });
+// Fetch chapter
+const {
+  data: chapterData,
+  isLoading: chapterLoading,
+  isError: chapterError,
+} = useQuery({
+  queryKey: ['chapter', chapterId],
+  queryFn: () => chapterApi.getById(chapterId),
+  enabled: Boolean(chapterId),
+});
 
-  // Fetch pages
-  const { data: pagesData, isLoading: pagesLoading } = useQuery({
-    queryKey: ['pages', chapterId],
-    queryFn: () => pageApi.getByChapter(chapterId),
-    enabled: !!chapterId,
-=======
-  const {
-    data: chapterData,
-    isLoading: chapterLoading,
-    isError: chapterError,
-  } = useQuery({
-    queryKey: ['chapter', chapterId],
-    queryFn: () => chapterApi.getById(chapterId),
-    enabled: Boolean(chapterId),
-  });
-
-  // Fetch pages
-  const {
-    data: pagesData,
-    isLoading: pagesLoading,
-    isError: pagesError,
-    error: pagesQueryError,
-  } = useQuery({
-    queryKey: ['pages', chapterId],
-    queryFn: () => pageApi.getByChapter(chapterId),
-    enabled: Boolean(chapterId),
->>>>>>> theirs
-  });
-
-  const chapter = chapterData?.data;
-  const pages = pagesData?.data || [];
-  const totalPages = pages.length;
-
-  // Start reading session
-<<<<<<< ours
-  const startReadingMutation = useMutation(
-    (data) => libraryApi.startReading(data),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
-        queryClient.refetchQueries({ queryKey: ['libraryOverview'] });
-      }
-    }
-  );
-
-  // End reading session
-  const endReadingMutation = useMutation(
-    (data) => libraryApi.endReading(data),
-    {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ['chapters', chapter?.manga_id] });
-        queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
-        queryClient.refetchQueries({ queryKey: ['libraryOverview'] });
-      }
-    }
-  );
-=======
-  const startReadingMutation = useMutation({
-    mutationFn: (data) => libraryApi.startReading(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
-      queryClient.refetchQueries({ queryKey: ['libraryOverview'] });
-    },
-  });
-
-  // End reading session
-  const endReadingMutation = useMutation({
-    mutationFn: (data) => libraryApi.endReading(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['chapters', chapter?.manga_id] });
-      queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
-      queryClient.refetchQueries({ queryKey: ['libraryOverview'] });
-    },
-  });
->>>>>>> theirs
-
-  // Reset read flag when chapter changes
-  useEffect(() => {
-    hasMarkedRead.current = false;
-  }, [chapterId]);
-
-  // Auto-hide controls
-  useEffect(() => {
-    let timeout;
-
-    const handleMouseMove = () => {
-      setShowControls(true);
-
-      clearTimeout(timeout);
-
+// Fetch pages
+const {
+  data: pagesData,
+  isLoading: pagesLoading,
+  isError: pagesError,
+  error: pagesQueryError,
+} = useQuery({
+  queryKey: ['pages', chapterId],
+  queryFn: () => pageApi.getByChapter(chapterId),
+  enabled: Boolean(chapterId),
+});
       timeout = setTimeout(() => {
         if (!showSettings) setShowControls(false);
       }, 3000);
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
+// Start reading session
+const startReadingMutation = useMutation({
+  mutationFn: (data) => libraryApi.startReading(data),
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
+    queryClient.refetchQueries({ queryKey: ['libraryOverview'] });
+  },
+});
 
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      clearTimeout(timeout);
-    };
-
-  }, [showSettings]);
-
-  // Scroll detection
-  const handleScroll = useCallback(() => {
-
-    if (!containerRef.current || totalPages === 0) return;
-
-    const scrollTop = containerRef.current.scrollTop;
-    const viewportHeight = containerRef.current.clientHeight;
-
-    for (let i = 0; i < pageRefs.current.length; i++) {
-
-      const pageEl = pageRefs.current[i];
-
-      if (!pageEl) continue;
-
-      const rect = pageEl.getBoundingClientRect();
-      const containerRect = containerRef.current.getBoundingClientRect();
-      const pageTop = rect.top - containerRect.top + scrollTop;
-
-      if (scrollTop >= pageTop - viewportHeight / 2) {
-        setCurrentPage(i);
-      }
-
-    }
-
-  }, [totalPages]);
-
-  useEffect(() => {
-
-    const container = containerRef.current;
-
-    if (!container) return;
-
-    container.addEventListener('scroll', handleScroll);
-
-    return () => container.removeEventListener('scroll', handleScroll);
-
-  }, [handleScroll]);
-
-  // Start / end reading session
-  useEffect(() => {
-
-    if (chapter?.manga_id) {
-
-      startReadingMutation.mutate({
-        manga_id: chapter.manga_id,
-        chapter_id: chapterId,
-        page_number: 0
-      });
+// End reading session
+const endReadingMutation = useMutation({
+  mutationFn: (data) => libraryApi.endReading(data),
+  onSuccess: () => {
+    queryClient.invalidateQueries({ queryKey: ['chapters', chapter?.manga_id] });
+    queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
+    queryClient.refetchQueries({ queryKey: ['libraryOverview'] });
+  },
+});
 
     }
 
@@ -379,21 +255,7 @@ export default function Reader() {
 
               <img
                 src={page.display_path || page.image_path}
-                alt={`Page ${index + 1}`}
-                loading={index < 3 ? 'eager' : 'lazy'}
-                className={clsx(
-                  'max-w-full h-auto',
-                  settings.fitMode === 'width' && 'w-full',
-                  settings.fitMode === 'height' && 'h-screen object-contain',
-                  settings.fitMode === 'original' && 'max-h-screen object-contain'
-                )}
-                onLoad={() => {
-                  if (index === 0) setIsLoadingPage(false);
-                }}
-              />
-
-            </div>
-
+  const toggleFullscreen = () => {
           ))}
 
         </div>

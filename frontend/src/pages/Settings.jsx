@@ -40,6 +40,7 @@ export default function Settings() {
   });
 
 <<<<<<< ours
+<<<<<<< ours
   const updateSettingsMutation = useMutation(
     (data) => settingsApi.update(data),
     {
@@ -65,12 +66,22 @@ export default function Settings() {
     },
   });
 
+=======
+  const updateSettingsMutation = useMutation({
+    mutationFn: (data) => settingsApi.update(data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['userPreferences'] });
+    },
+  });
+
+>>>>>>> theirs
   const resetSettingsMutation = useMutation({
     mutationFn: () => settingsApi.reset(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['userPreferences'] });
     },
   });
+<<<<<<< ours
 >>>>>>> theirs
 
   useEffect(() => {
@@ -78,6 +89,8 @@ export default function Settings() {
       useThemeStore.getState().syncFromPreferences(preferences.data);
     }
   }, [preferences?.data?.theme]);
+=======
+>>>>>>> theirs
 
   if (isLoading) {
     return <LoadingScreen />;
