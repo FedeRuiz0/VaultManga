@@ -1,11 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Loader2 } from 'lucide-react';
 import { chapterApi, pageApi, libraryApi } from '../services/api';
 import LoadingScreen from '../components/LoadingScreen';
-import ProgressiveImage from '../components/ProgressiveImage';
 import clsx from 'clsx';
 
 export default function Reader() {
@@ -14,50 +13,52 @@ export default function Reader() {
   const queryClient = useQueryClient();
 
   const [showSettings, setShowSettings] = useState(false);
-  const [showControls, setShowControls] = useState(true);
   const [currentPage, setCurrentPage] = useState(0);
   const [isLoadingPage, setIsLoadingPage] = useState(true);
-  const [isFullscreen, setIsFullscreen] = useState(false);
+
   const hasMarkedRead = useRef(false);
   const containerRef = useRef(null);
   const pageRefs = useRef([]);
 
-  const settings = {
+  const [settings] = useState({
     backgroundColor: '#0a0a0a',
     fitMode: 'width',
-    showPageNumber: true,
-    preloading: true,
-    prefetchCount: 3,
-  };
+  });
 
-  // Extract data
-  const chapter = useQuery({
+  // ✅ FIX: useQuery correcto
+  const {
+    data: chapter,
+    isLoading: chapterLoading,
+    isError: chapterError,
+    error: chapterQueryError,
+  } = useQuery({
     queryKey: ['chapter', chapterId],
     queryFn: () => chapterApi.getById(chapterId),
     enabled: Boolean(chapterId),
-  }).data?.chapter;
-
-  const { data: pagesData = { pages: [] }, isLoading: pagesLoading, error: pagesError } = useQuery({
-    queryKey: ['pages', chapterId],
-    queryFn: () => pageApi.getByChapter(chapterId),
-    enabled: Boolean(chapterId),
   });
 
-  const pages = pagesData.pages || [];
+  // ✅ Detectar páginas dentro del chapter
+  const chapterPages = useMemo(() => {
+    if (Array.isArray(chapter?.pages)) return chapter.pages;
+    if (Array.isArray(chapter?.data?.pages)) return chapter.data.pages;
+    return null;
+  }, [chapter]);
+
+  const {
+    data: fetchedPages,
+    isLoading: pagesLoading,
+    isError: pagesError,
+    error: pagesQueryError,
+  } = useQuery({
+    queryKey: ['pages', chapterId],
+    queryFn: () => pageApi.getByChapter(chapterId),
+    enabled: Boolean(chapterId) && !chapterPages,
+  });
+
+  const pages = chapterPages ?? fetchedPages ?? [];
   const totalPages = pages.length;
 
-  // Timeout for hiding controls
-  useEffect(() => {
-    let timeout;
-    if (showControls) {
-      timeout = setTimeout(() => {
-        if (!showSettings) setShowControls(false);
-      }, 3000);
-    }
-    return () => clearTimeout(timeout);
-  }, [showControls, showSettings]);
-
-  // Reading session start/end
+  // 📚 mutations
   const startReadingMutation = useMutation({
     mutationFn: (data) => libraryApi.startReading(data),
     onSuccess: () => {
@@ -68,18 +69,53 @@ export default function Reader() {
   const endReadingMutation = useMutation({
     mutationFn: (data) => libraryApi.endReading(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['chapters', chapter?.manga_id] });
       queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
     },
   });
 
   useEffect(() => {
+    hasMarkedRead.current = false;
+  }, [chapterId]);
+
+  // 📜 scroll tracking
+  const handleScroll = useCallback(() => {
+    if (!containerRef.current || totalPages === 0) return;
+
+    const scrollTop = containerRef.current.scrollTop;
+    const viewportHeight = containerRef.current.clientHeight;
+
+    for (let i = 0; i < pageRefs.current.length; i++) {
+      const pageEl = pageRefs.current[i];
+      if (!pageEl) continue;
+
+      const rect = pageEl.getBoundingClientRect();
+      const containerRect = containerRef.current.getBoundingClientRect();
+      const pageTop = rect.top - containerRect.top + scrollTop;
+
+      if (scrollTop >= pageTop - viewportHeight / 2) {
+        setCurrentPage(i);
+      }
+    }
+  }, [totalPages]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [handleScroll]);
+
+  // ▶ start / end reading
+  useEffect(() => {
     if (chapter?.manga_id) {
       startReadingMutation.mutate({
         manga_id: chapter.manga_id,
         chapter_id: chapterId,
+        page_number: 0,
       });
     }
+
     return () => {
       if (chapter?.manga_id) {
         endReadingMutation.mutate({
@@ -89,95 +125,51 @@ export default function Reader() {
         });
       }
     };
-  }, [chapterId, chapter?.manga_id, currentPage]);
+  }, [chapterId, chapter?.manga_id]);
 
-  // Mark as read
+  // ✅ marcar leído
   useEffect(() => {
-    if (
-      totalPages > 0 &&
-      currentPage === totalPages - 1 &&
-      !hasMarkedRead.current
-    ) {
+    if (currentPage === totalPages - 1 && totalPages > 0 && !hasMarkedRead.current) {
       hasMarkedRead.current = true;
-      chapterApi.markRead(chapterId).then(() => {
-        queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
-      }).catch(console.error);
+      chapterApi.markRead(chapterId).catch(() => {
+        hasMarkedRead.current = false;
+      });
     }
   }, [currentPage, totalPages, chapterId]);
 
-  // Keyboard
+  // ⌨ navegación teclado
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'ArrowDown') {
-        e.preventDefault();
-        goToNextPage();
-      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        goToPrevPage();
-      } else if (e.key === 'Escape') {
-        setShowSettings(false);
-        navigate(`/manga/${chapter?.manga_id}`);
-      } else if (e.key === 'f') {
-        toggleFullscreen();
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
+        pageRefs.current[currentPage + 1]?.scrollIntoView({ behavior: 'smooth' });
+      }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        pageRefs.current[currentPage - 1]?.scrollIntoView({ behavior: 'smooth' });
+      }
+      if (e.key === 'Escape') {
+        if (chapter?.manga_id) navigate(`/manga/${chapter.manga_id}`);
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentPage, totalPages, chapter?.manga_id]);
+  }, [currentPage, chapter]);
 
-  const goToNextPage = useCallback(() => {
-    if (currentPage < totalPages - 1) {
-      pageRefs.current[currentPage + 1]?.scrollIntoView({ behavior: 'smooth' });
-    } else {
-      navigateNextChapter();
-    }
-  }, [currentPage, totalPages]);
+  // ⏳ loading
+  if (chapterLoading || pagesLoading) return <LoadingScreen />;
 
-  const goToPrevPage = useCallback(() => {
-    if (currentPage > 0) {
-      pageRefs.current[currentPage - 1]?.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [currentPage]);
-
-  const navigateNextChapter = async () => {
-    try {
-      const { data } = await chapterApi.getNext(chapterId);
-      if (data) navigate(`/reader/${data.id}`);
-    } catch (err) {
-      console.log('No next chapter');
-    }
-  };
-
-  const navigatePrevChapter = async () => {
-    try {
-      const { data } = await chapterApi.getPrev(chapterId);
-      if (data) navigate(`/reader/${data.id}`);
-    } catch (err) {
-      console.log('No previous chapter');
-    }
-  };
-
-  const toggleFullscreen = useCallback(() => {
-    if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen?.();
-      setIsFullscreen(true);
-    } else {
-      document.exitFullscreen?.();
-      setIsFullscreen(false);
-    }
-  }, []);
-
-  if (pagesLoading) return <LoadingScreen />;
-
-  if (pagesError || !chapter) {
+  // ❌ error
+  if (chapterError || pagesError || !chapter || pages.length === 0) {
     return (
       <div className="fixed inset-0 bg-black text-white flex items-center justify-center p-6">
-        <div className="max-w-md text-center space-y-4">
-          <h2 className="text-xl font-semibold">Unable to load chapter</h2>
-          <p className="text-gray-400">{pagesError?.message || 'Chapter not found'}</p>
+        <div className="text-center space-y-4">
+          <h2 className="text-xl">Unable to load chapter</h2>
+          <p className="text-gray-400">
+            {chapterQueryError?.message || pagesQueryError?.message || 'Chapter not found'}
+          </p>
           <button
             onClick={() => navigate(-1)}
-            className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white"
+            className="px-4 py-2 bg-blue-600 rounded-lg"
           >
             Go Back
           </button>
@@ -186,118 +178,45 @@ export default function Reader() {
     );
   }
 
+  // ✅ render
   return (
-    <div className="fixed inset-0 bg-black overflow-hidden">
+    <div className="fixed inset-0 bg-black">
       <div
         ref={containerRef}
-        className="h-screen overflow-y-auto scrollbar-hide"
+        className="h-screen overflow-y-auto"
         style={{ backgroundColor: settings.backgroundColor }}
       >
-        <div className="max-w-4xl mx-auto p-4">
-          <AnimatePresence>
-            {pages.map((page, index) => (
-              <motion.div
-                key={page.id}
-                ref={(el) => { pageRefs.current[index] = el; }}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ duration: 0.3 }}
-                className="flex flex-col items-center justify-center min-h-screen py-8"
-              >
-                <ProgressiveImage
-                  src={page.display_path || page.image_path}
-                  alt={`Page ${index + 1}`}
-                  className={clsx(
-                    'max-w-full max-h-screen object-contain cursor-zoom-in hover:cursor-grab active:cursor-grabbing',
-                    settings.fitMode === 'width' ? 'w-full h-auto' : 'h-screen w-auto'
-                  )}
-                  onLoadEnd={() => setIsLoadingPage(false)}
-                  placeholder="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIwIiBoZWlnaHQ9IjMyMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjZGRkIi8+PHRleHQgZm9udC1mYW1pbHk9IkhlbHZldGljYSwgQXJpYWwsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iMTgiIHRleHQtYW5jaG9yPSJtaWRkbGUiIHg9IjUwJSIgeT0iNTAlIj5Mb2FkaW5nLi4uPC90ZXh0Pjwvc3ZnPg=="
-                />
-                {settings.showPageNumber && (
-                  <div className="mt-4 text-sm text-gray-400">
-                    Page {index + 1} / {totalPages}
-                  </div>
+        <div className="max-w-4xl mx-auto">
+          {pages.map((page, index) => (
+            <div
+              key={page.id || index}
+              ref={(el) => (pageRefs.current[index] = el)}
+              className="min-h-screen flex justify-center"
+            >
+              <img
+                src={page.display_path || page.image_path}
+                alt={`Page ${index + 1}`}
+                className={clsx(
+                  'max-w-full h-auto',
+                  settings.fitMode === 'width' && 'w-full'
                 )}
-              </motion.div>
-            ))}
-          </AnimatePresence>
+                onLoad={() => index === 0 && setIsLoadingPage(false)}
+              />
+            </div>
+          ))}
         </div>
       </div>
 
-      {/* Controls Overlay */}
-      <AnimatePresence>
-        {showControls && (
-          <motion.div
-            className="absolute inset-0 pointer-events-none flex flex-col justify-between p-6 z-50"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            {/* Top controls */}
-            <div className="flex justify-between items-center pointer-events-auto">
-              <button
-                onClick={navigatePrevChapter}
-                className="p-2 rounded-full bg-black/50 hover:bg-black/70 text-white transition-all"
-                title="Previous chapter"
-              >
-                ← Prev
-              </button>
-              <div className="text-sm text-gray-300">
-                {chapter?.title}
-              </div>
-              <button
-                onClick={navigateNextChapter}
-                className="p-2 rounded-full bg-black/50 hover:bg-black/70 text-white transition-all"
-                title="Next chapter"
-              >
-                Next →
-              </button>
-            </div>
-
-            {/* Bottom controls */}
-            <div className="flex justify-center space-x-4 pointer-events-auto">
-              <button
-                onClick={toggleFullscreen}
-                className="p-3 rounded-full bg-black/50 hover:bg-black/70 text-white transition-all"
-                title="Fullscreen"
-              >
-                ↔
-              </button>
-              <button
-                onClick={() => setShowSettings(!showSettings)}
-                className="p-3 rounded-full bg-black/50 hover:bg-black/70 text-white transition-all"
-                title="Settings"
-              >
-                ⚙️
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Loading overlay */}
-      {isLoadingPage && (
-        <motion.div
-          className="absolute inset-0 flex items-center justify-center bg-black/80 z-40"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-        >
-          <Loader2 className="w-12 h-12 animate-spin text-blue-400" />
-        </motion.div>
-      )}
-
-      {/* Progress sync status */}
       <AnimatePresence>
         {(startReadingMutation.isPending || endReadingMutation.isPending) && (
-          <motion.div
-            className="absolute top-6 right-6 bg-gray-900/90 backdrop-blur-sm text-xs px-3 py-2 rounded-lg border border-gray-700 z-50"
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-          >
+          <motion.div className="absolute top-4 right-4 text-xs bg-black/80 px-3 py-2 rounded">
             Syncing...
+          </motion.div>
+        )}
+
+        {isLoadingPage && (
+          <motion.div className="absolute inset-0 flex items-center justify-center bg-black">
+            <Loader2 className="w-8 h-8 animate-spin text-white" />
           </motion.div>
         )}
       </AnimatePresence>
