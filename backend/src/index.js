@@ -49,6 +49,14 @@ if (process.env.NODE_ENV !== 'test') {
 
 // Static files for manga images
 app.use('/storage', express.static(join(__dirname, '../storage/manga')));
+app.use('/manga/library', express.static('/manga/library', { 
+  maxAge: '1d', 
+  etag: false,
+  setHeaders: (res, path) => {
+    res.set('Access-Control-Allow-Origin', '*');
+  }
+}));
+
 
 // API Routes
 app.use('/api/v1', routes);
