@@ -91,59 +91,47 @@ async getChapters(mangaDexId) {
   }
 
 async importChapters(mangaId, mangaDexId) {
-    const client = await queryPool.connect();
-    try {
-      await client.query('BEGIN');
+  try {
+    const chapters = await this.getChapters(mangaDexId);
+    let importedCount = 0;
 
-      const chapters = await this.getChapters(mangaDexId);
-      let importedCount = 0;
+    console.log(`📚 Importing ${chapters.length} chapters for manga ${mangaId}`);
 
-      console.log(`📚 Importing ${chapters.length} chapters for manga ${mangaId}`);
+    for (const chapter of chapters) {
+      const attrs = chapter.attributes;
+      const mangadexChapterId = chapter.id;
 
-      for (const chapter of chapters) {
-        const attrs = chapter.attributes;
-        const mangadexChapterId = chapter.id;
-        const dbChapterId = uuidv4();
+      await query(`
+        INSERT INTO chapters (
+          id, manga_id, chapter_number, volume, title, source_path, page_count
+        ) VALUES ($1, $2, $3, $4, $5, $6, 0)
+        ON CONFLICT (manga_id, chapter_number) DO UPDATE SET
+          title = EXCLUDED.title,
+          volume = EXCLUDED.volume,
+          source_path = EXCLUDED.source_path,
+          updated_at = NOW()
+      `, [
+        uuidv4(),
+        mangaId,
+        attrs.chapter || '0',
+        attrs.volume || null,
+        attrs.title?.en || `Chapter ${attrs.chapter || '?'}`,
+        `mangadex://${mangadexChapterId}`
+      ]);
 
-        // Upsert chapter - avoid duplicates on mangadex_chapter_id
-        const result = await client.query(`
-          INSERT INTO chapters (
-            id, manga_id, mangadex_chapter_id, chapter_number, volume, 
-            title, language, published_at, page_count
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0)
-          ON CONFLICT (mangadex_chapter_id) DO UPDATE SET
-            title = EXCLUDED.title,
-            chapter_number = EXCLUDED.chapter_number,
-            updated_at = NOW()
-          RETURNING id
-        `, [
-          dbChapterId,
-          mangaId,
-          mangadexChapterId,
-          attrs.chapter || '0',
-          attrs.volume || null,
-          attrs.title?.en || `Chapter ${attrs.chapter || '?'}`, 
-          attrs.translatedLanguage || 'en',
-          attrs.publishAt ? new Date(attrs.publishAt).toISOString() : null
-        ]);
+      importedCount++;
 
-        importedCount++;
-
-        // Rate limit
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-
-      await client.query('COMMIT');
-      console.log(`✅ Transaction committed: ${importedCount} chapters for ${mangaId}`);
-      return importedCount;
-    } catch (error) {
-      await client.query('ROLLBACK');
-      console.error('Chapter import transaction failed:', error);
-      throw error;
-    } finally {
-      client.release();
+      
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
+
+    console.log(`✅ Chapters imported: ${importedCount} for ${mangaId}`);
+    return importedCount;
+  } catch (error) {
+    console.error('Chapter import failed:', error);
+    throw error;
   }
+}
 
   async importManga(mangaData) {
     try {

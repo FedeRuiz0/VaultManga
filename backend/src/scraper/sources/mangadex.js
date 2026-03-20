@@ -163,7 +163,7 @@ export async function scrapeChapterList(mangaUrl) {
         params.append('contentRating[]', 'suggestive');
         params.append('contentRating[]', 'erotica');
         params.append('contentRating[]', 'pornographic');
-        params.append('manga', mangaId);
+        params.append('manga[]', mangaId);
 
         for (const lang of translatedLanguage) {
           params.append('translatedLanguage[]', lang);
@@ -174,14 +174,16 @@ export async function scrapeChapterList(mangaUrl) {
         if (items.length === 0) break;
 
         for (const item of items) {
-          const chapterNumber = toChapterNumber(item.attributes?.chapter);
-          if (!chapterNumber) continue;
+          const rawChapter = item.attributes?.chapter;
+          const chapterNumber = toChapterNumber(rawChapter) || `special-${item.id}`;
+          const language = item.attributes?.translatedLanguage || 'unknown';
 
           chapters.push({
             chapter_number: chapterNumber,
             title: item.attributes?.title || `Chapter ${chapterNumber}`,
             source_path: `mangadex:${item.id}`,
-            url: item.id
+            url: item.id,
+            language
           });
         }
 
@@ -197,25 +199,26 @@ let chapters = await fetchAll(['en']);
 
 // 2. Si no hay, intentar español
 if (chapters.length === 0) {
-  console.log('[mangadex] no EN chapters, trying ES...');
-  chapters = await fetchAll(['es']);
-}
+      console.log('[mangadex] no EN chapters, trying ES...');
+      chapters = await fetchAll(['es']);
+    }
 
 // 3. Si sigue vacío, traer TODO sin filtro
 if (chapters.length === 0) {
-  console.log('[mangadex] no ES chapters, fetching ALL languages...');
-  chapters = await fetchAll([]);
-}
+      console.log('[mangadex] no ES chapters, fetching ALL languages...');
+      chapters = await fetchAll([]);
+    }
 
 // 4. Eliminar duplicados
-const unique = new Map();
-for (const ch of chapters) {
-  if (!unique.has(ch.chapter_number)) {
-    unique.set(ch.chapter_number, ch);
-  }
-}
+    const unique = new Map();
+    for (const ch of chapters) {
+      const key = `${ch.chapter_number}|${ch.language}`;
+      if (!unique.has(key)) {
+        unique.set(key, ch);
+      }
+    }
 
-return Array.from(unique.values());
+    return Array.from(unique.values());
   } catch (error) {
     console.error(`[mangadex] chapter list failed: ${error.message}`);
     return [];

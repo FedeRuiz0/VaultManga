@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
-import { query } from '../db/database.js';
+import { query, queryOne } from '../db/database.js';
 import { mangaCache } from '../db/redis.js';
 
 class MangaDexPageScraper {
@@ -24,7 +24,7 @@ class MangaDexPageScraper {
       }
 
       // Build image base URL
-      const imageBase = `${this.serverBase}${server.baseUrl}/data/${server.chapter.hash}`;
+      const imageBase = `${server.baseUrl}/data/${server.chapter.hash}`;
       
       console.log(`📊 Server: ${server.baseUrl}, Hash: ${server.chapter.hash}`);
       
@@ -41,9 +41,10 @@ class MangaDexPageScraper {
     }
   }
 
-  async importPages(chapterId) {
+  async importPages(chapterId, mangadexChapterId = null) {
     try {
-      const pagesInfo = await this.getChapterPages(chapterId);
+      const sourceChapterId = mangadexChapterId || chapterId;
+      const pagesInfo = await this.getChapterPages(sourceChapterId);
       if (!pagesInfo) {
         console.log('❌ No pages data available');
         return 0;
@@ -64,9 +65,9 @@ class MangaDexPageScraper {
               file_size, is_cached, created_at
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
             ON CONFLICT (chapter_id, page_number) DO UPDATE SET
-              image_url = EXCLUDED.image_url,
-              image_path = EXCLUDED.image_path,
-              updated_at = NOW()
+            image_url = EXCLUDED.image_url,
+            image_path = EXCLUDED.image_path
+              
           `, [
             pageId,
             chapterId,

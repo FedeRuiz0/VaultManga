@@ -18,16 +18,20 @@ router.get('/overview', async (req, res, next) => {
     `);
 
     // Get recently read manga
-    const recentlyRead = await queryAll(`
-      SELECT DISTINCT ON (m.id)
-        m.id, m.title, m.cover_image, m.last_read_at,
-        c.chapter_number, c.read_progress
-      FROM manga m
-      JOIN chapters c ON m.id = c.manga_id
-      WHERE c.last_read_at IS NOT NULL
-      ORDER BY m.id, c.last_read_at DESC
-      LIMIT 10
-    `);
+const recentlyRead = await queryAll(`
+  SELECT DISTINCT ON (m.id)
+    m.id,
+    m.title,
+    m.cover_image,
+    rh.read_at as last_read_at,
+    c.chapter_number,
+    c.read_progress
+  FROM reading_history rh
+  JOIN manga m ON rh.manga_id = m.id
+  JOIN chapters c ON rh.chapter_id = c.id
+  ORDER BY m.id, rh.read_at DESC
+  LIMIT 10
+`);
 
     // Get continue reading (chapters in progress)
     const continueReading = await queryAll(`
