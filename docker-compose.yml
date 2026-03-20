@@ -6,7 +6,7 @@ services:
     container_name: mangavault_db
     environment:
       POSTGRES_USER: mangavault
-      POSTGRES_PASSWORD: mangavault_password
+      POSTGRES_PASSWORD: 123456
       POSTGRES_DB: mangavault
     ports:
       - "5432:5432"
@@ -41,7 +41,7 @@ services:
     environment:
       NODE_ENV: development
       PORT: 3001
-      DATABASE_URL: postgresql://mangavault:mangavault_password@postgres:5432/mangavault
+      DATABASE_URL: postgresql://mangavault:123456@postgres:5432/mangavault
       REDIS_URL: redis://redis:6379
       JWT_SECRET: mangavault_secret_key_change_in_production
       MANGA_FOLDERS: /manga/library
