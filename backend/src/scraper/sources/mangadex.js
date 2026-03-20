@@ -1,36 +1,52 @@
 import axios from 'axios';
-import { v4 as uuidv4 } from 'uuid';
 
 const BASE_URL = 'https://api.mangadex.org';
+const DEFAULT_TIMEOUT_MS = Number(process.env.SCRAPER_HTTP_TIMEOUT_MS || 15000);
+
+const http = axios.create({
+  baseURL: BASE_URL,
+  timeout: DEFAULT_TIMEOUT_MS,
+  headers: {
+    'User-Agent': 'VaultManga/1.0 (+https://github.com)',
+    Accept: 'application/json'
+  }
+});
+
+function pickLocalizedValue(valueObj, preferred = 'en', fallback = '') {
+  if (!valueObj || typeof valueObj !== 'object') return fallback;
+  if (valueObj[preferred]) return valueObj[preferred];
+
+  const first = Object.values(valueObj).find(Boolean);
+  return first || fallback;
+}
+
+function toChapterNumber(raw) {
+  if (raw === null || raw === undefined) return null;
+  return String(raw).trim();
+}
 
 // ======================
 // 🔍 SEARCH
 // ======================
 export async function searchManga(query, limit = 5) {
-  try {
-    console.log('🔍 Searching MangaDex:', query);
+  if (!query || !String(query).trim()) return [];
 
-    const res = await axios.get(`${BASE_URL}/manga`, {
+  try {
+    const { data } = await http.get('/manga', {
       params: {
         title: query,
-        limit
+        limit,
+        order: { relevance: 'desc' }
       }
     });
 
-    const results = res.data.data.map(m => ({
-      title:
-        m.attributes.title?.en ||
-        Object.values(m.attributes.title || {})[0] ||
-        'Unknown title',
-      url: `${BASE_URL}/manga/${m.id}`,
-      id: m.id
+    return (data?.data || []).map((item) => ({
+      id: item.id,
+      title: pickLocalizedValue(item.attributes?.title, 'en', 'Unknown title'),
+      url: `/manga/${item.id}`
     }));
-
-    console.log(`📖 Found ${results.length} results (MangaDex)`);
-    return results;
-
-  } catch (err) {
-    console.error('❌ MangaDex search failed:', err.message);
+  } catch (error) {
+    console.error(`[mangadex] search failed: ${error.message}`);
     return [];
   }
 }
@@ -39,109 +55,104 @@ export async function searchManga(query, limit = 5) {
 // 📖 DETAILS
 // ======================
 export async function scrapeMangaDetails(mangaUrl) {
+  const mangaId = String(mangaUrl || '').split('/').filter(Boolean).pop();
+  if (!mangaId) {
+    throw new Error('Invalid manga URL/path for MangaDex details');
+  }
+
   try {
-    console.log('📖 Scraping details:', mangaUrl);
+    const { data } = await http.get(`/manga/${mangaId}`, {
+      params: {
+        includes: ['author', 'artist', 'cover_art']
+      }
+    });
 
-    const res = await axios.get(mangaUrl);
-    const data = res.data.data;
+    const manga = data?.data;
+    if (!manga) throw new Error('MangaDex details response missing data');
 
-    const title =
-      data.attributes.title?.en ||
-      Object.values(data.attributes.title || {})[0] ||
-      'Unknown title';
+    const attrs = manga.attributes || {};
+    const title = pickLocalizedValue(attrs.title, 'en', 'Unknown title');
+    const description = pickLocalizedValue(attrs.description, 'en', '');
 
-    const description =
-      data.attributes.description?.en ||
-      Object.values(data.attributes.description || {})[0] ||
-      '';
+    const authorRel = (manga.relationships || []).find((r) => r.type === 'author');
+    const artistRel = (manga.relationships || []).find((r) => r.type === 'artist');
+    const coverRel = (manga.relationships || []).find((r) => r.type === 'cover_art');
 
-    
-    let cover = null;
-    const coverRel = res.data.data.relationships?.find(r => r.type === 'cover_art');
+    let coverImage = null;
 
-    if (coverRel) {
-      const coverRes = await axios.get(`${BASE_URL}/cover/${coverRel.id}`);
-      const fileName = coverRes.data.data.attributes.fileName;
-      cover = `https://uploads.mangadex.org/covers/${data.id}/${fileName}`;
+    if (coverRel?.id) {
+      const { data: coverData } = await http.get(`/cover/${coverRel.id}`);
+      const fileName = coverData?.data?.attributes?.fileName;
+
+      if (fileName) {
+        coverImage = `https://uploads.mangadex.org/covers/${mangaId}/${fileName}`;
+      }
     }
 
     return {
-      id: uuidv4(),
       title,
       description,
-      cover_image: cover,
-      source_path: `mangadex:${data.id}`,
-      author: null,
-      status: data.attributes.status || 'unknown'
+      cover_image: coverImage,
+      source_path: `mangadex:${mangaId}`,
+      author: authorRel?.attributes?.name || artistRel?.attributes?.name || null,
+      status: attrs.status || 'unknown'
     };
 
-  } catch (err) {
-    console.error('❌ Details failed:', err.message);
-    throw err;
+  } catch (error) {
+    console.error(`[mangadex] details failed: ${error.message}`);
+    throw error;
   }
-}
-
-export async function clearScrapeProgress(mangaId) {
-  try {
-    await cacheDelete(`scraper:progress:${mangaId}`);
-    console.log('🗑️ Progress cleared');
-  } catch {}
 }
 
 // ======================
 // 📚 CHAPTER LIST
 // ======================
 export async function scrapeChapterList(mangaUrl) {
+  const mangaId = String(mangaUrl || '').split('/').filter(Boolean).pop();
+  if (!mangaId) {
+    throw new Error('Invalid manga URL/path for MangaDex chapter list');
+  }
+
   try {
-    console.log('📚 Fetching chapters from MangaDex API');
-
-    const mangaId = mangaUrl.split('/').pop();
-
-    let allChapters = [];
-    let offset = 0;
+    const chapters = [];
     const limit = 100;
+    let offset = 0;
 
-    // 🔥 PAGINACIÓN REAL
     while (true) {
-      const res = await axios.get(`${BASE_URL}/chapter`, {
+      const { data } = await http.get('/chapter', {
         params: {
           manga: mangaId,
+          translatedLanguage: ['en', 'es', 'pt-br', 'ja', 'it'],
           limit,
           offset,
-          translatedLanguage: ['en'],
+          includes: ['scanlation_group'],
           order: { chapter: 'asc' }
         }
       });
 
-      const data = res.data.data;
+      const items = data?.data || [];
+      if (items.length === 0) break;
 
-      if (!data.length) break;
+      for (const item of items) {
+        const chapterNumber = toChapterNumber(item.attributes?.chapter);
+        if (!chapterNumber) continue;
 
-      const parsed = data
-        .filter(ch => ch.attributes.chapter)
-        .map(ch => ({
-          chapter_number: parseFloat(ch.attributes.chapter),
-          title: ch.attributes.title || `Chapter ${ch.attributes.chapter}`,
-          url: ch.id,
-          source_path: `mangadex:${mangaId}`
-        }));
-
-      allChapters.push(...parsed);
+        chapters.push({
+          chapter_number: chapterNumber,
+          title: item.attributes?.title || `Chapter ${chapterNumber}`,
+          source_path: `mangadex:${item.id}`,
+          url: item.id
+        });
+      }
 
       offset += limit;
-
-      if (data.length < limit) break;
+      if (items.length < limit) break;
     }
 
-    // 🔥 ORDEN FINAL (por si acaso)
-    allChapters.sort((a, b) => a.chapter_number - b.chapter_number);
+    return chapters;
 
-    console.log(`📚 Found ${allChapters.length} chapters`);
-
-    return allChapters;
-
-  } catch (err) {
-    console.error('❌ Chapter list failed:', err.message);
+  } catch (error) {
+    console.error(`[mangadex] chapter list failed: ${error.message}`);
     return [];
   }
 }
@@ -150,25 +161,25 @@ export async function scrapeChapterList(mangaUrl) {
 // 🖼️ PAGES
 // ======================
 export async function scrapeChapterPages(chapterId) {
+  if (!chapterId) return [];
+
   try {
-    console.log('🖼️ Fetching pages for chapter:', chapterId);
+    const { data } = await http.get(`/at-home/server/${chapterId}`);
 
-    const res = await axios.get(`${BASE_URL}/at-home/server/${chapterId}`);
+    const baseUrl = data?.baseUrl;
+    const chapter = data?.chapter;
 
-    const { baseUrl, chapter } = res.data;
-
-    if (!chapter?.data?.length) {
-      console.log('⚠️ No pages found');
+    if (!baseUrl || !chapter?.hash || !Array.isArray(chapter.data)) {
       return [];
     }
 
-    return chapter.data.map((file, i) => ({
-      page_number: i + 1,
-      image_url: `${baseUrl}/data/${chapter.hash}/${file}`
+    return chapter.data.map((fileName, index) => ({
+      page_number: index + 1,
+      image_url: `${baseUrl}/data/${chapter.hash}/${fileName}`
     }));
 
-  } catch (err) {
-    console.error('❌ Page scrape failed:', err.message);
+  } catch (error) {
+    console.error(`[mangadex] page scrape failed for ${chapterId}: ${error.message}`);
     return [];
   }
 }

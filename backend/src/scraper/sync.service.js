@@ -1,154 +1,245 @@
 import { v4 as uuidv4 } from 'uuid';
 import { getPool } from '../db/database.js';
 import { cacheGet, cacheSet, cacheDelete } from '../db/redis.js';
-import * as mangadex from './sources/mangadex.js';
+
+// ======================
+// 🔧 HELPERS
+// ======================
+function normalizeChapterNumber(value) {
+  return String(value ?? '').trim();
+}
 
 // ======================
 // 🧠 MANGA UPSERT
 // ======================
 export async function upsertManga(scrapedManga) {
+  if (!scrapedManga?.source_path) {
+    throw new Error('scrapedManga.source_path is required');
+  }
+
   const client = await getPool().connect();
 
   try {
     await client.query('BEGIN');
 
     const existing = await client.query(
-      'SELECT id FROM manga WHERE source_path = $1',
+      'SELECT id FROM manga WHERE source_path = $1 LIMIT 1',
       [scrapedManga.source_path]
     );
 
-    let manga;
+    let mangaId;
 
-    if (existing.rows.length === 0) {
-      const mangaId = scrapedManga.id || uuidv4();
+    if (existing.rows.length > 0) {
+      mangaId = existing.rows[0].id;
+
+      await client.query(
+        `UPDATE manga
+         SET title = $1,
+             description = $2,
+             cover_image = $3,
+             author = $4,
+             status = $5,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $6`,
+        [
+          scrapedManga.title || 'Unknown title',
+          scrapedManga.description || '',
+          scrapedManga.cover_image || null,
+          scrapedManga.author || null,
+          scrapedManga.status || 'unknown',
+          mangaId
+        ]
+      );
+
+      console.log(`[sync] manga updated: ${mangaId}`);
+
+    } else {
+      mangaId = scrapedManga.id || uuidv4();
 
       await client.query(
         `INSERT INTO manga (
           id, title, description, cover_image, source_path, author, status
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [
           mangaId,
-          scrapedManga.title,
-          scrapedManga.description,
-          scrapedManga.cover_image,
+          scrapedManga.title || 'Unknown title',
+          scrapedManga.description || '',
+          scrapedManga.cover_image || null,
           scrapedManga.source_path,
-          scrapedManga.author,
-          scrapedManga.status
+          scrapedManga.author || null,
+          scrapedManga.status || 'unknown'
         ]
       );
 
-      for (const page of pages) {
-  console.log(`🖼️ Page ${page.page_number}: ${page.image_url}`);
-}
-
-      console.log('💾 New manga inserted:', mangaId);
-      manga = { id: mangaId };
-    } else {
-      manga = existing.rows[0];
-      console.log('💾 Manga exists:', manga.id);
+      console.log(`[sync] manga inserted: ${mangaId}`);
     }
 
     await client.query('COMMIT');
-    return manga;
+    return { id: mangaId };
 
-  } catch (err) {
+  } catch (error) {
     await client.query('ROLLBACK');
-    throw err;
+    throw error;
   } finally {
     client.release();
   }
 }
 
 // ======================
-// 📚 CHAPTERS
+// 📚 CHAPTER UPSERT
 // ======================
-export async function upsertChapters(mangaId, chapters) {
+async function upsertSingleChapter(client, mangaId, chapter) {
+  const chapterNumber = normalizeChapterNumber(chapter.chapter_number);
+
+  if (!chapterNumber) {
+    throw new Error('chapter_number is required');
+  }
+
+  const result = await client.query(
+    `INSERT INTO chapters (id, manga_id, chapter_number, title, source_path, page_count)
+     VALUES ($1, $2, $3, $4, $5, 0)
+     ON CONFLICT (manga_id, chapter_number)
+     DO UPDATE SET
+       title = EXCLUDED.title,
+       source_path = EXCLUDED.source_path,
+       updated_at = CURRENT_TIMESTAMP
+     RETURNING id`,
+    [
+      uuidv4(),
+      mangaId,
+      chapterNumber,
+      chapter.title || `Chapter ${chapterNumber}`,
+      chapter.source_path || chapter.url || ''
+    ]
+  );
+
+  return {
+    id: result.rows[0].id,
+    chapter_number: chapterNumber,
+    url: chapter.url
+  };
+}
+
+// ======================
+// 🖼️ PAGES SYNC
+// ======================
+async function syncChapterPages(client, chapterId, chapterUrlOrId, scrapeChapterPages) {
+  const existing = await client.query(
+    'SELECT COUNT(*)::int AS count FROM pages WHERE chapter_id = $1',
+    [chapterId]
+  );
+
+  const existingCount = existing.rows[0].count;
+
+  if (existingCount > 0) {
+    await client.query(
+      'UPDATE chapters SET page_count = $1 WHERE id = $2',
+      [existingCount, chapterId]
+    );
+
+    return { inserted: 0, total: existingCount, skipped: true };
+  }
+
+  const pages = await scrapeChapterPages(chapterUrlOrId);
+
+  if (!pages || pages.length === 0) {
+    await client.query(
+      'UPDATE chapters SET page_count = 0 WHERE id = $1',
+      [chapterId]
+    );
+
+    return { inserted: 0, total: 0, skipped: false };
+  }
+
+  const values = [];
+  const placeholders = [];
+
+  pages.forEach((page, i) => {
+    const base = values.length;
+
+    values.push(
+      uuidv4(),
+      chapterId,
+      page.page_number || i + 1,
+      page.image_url,
+      page.image_url
+    );
+
+    placeholders.push(
+      `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`
+    );
+  });
+
+  await client.query(
+    `INSERT INTO pages (id, chapter_id, page_number, image_path, image_url)
+     VALUES ${placeholders.join(',')}
+     ON CONFLICT (chapter_id, page_number)
+     DO UPDATE SET
+       image_url = EXCLUDED.image_url,
+       image_path = EXCLUDED.image_path`,
+    values
+  );
+
+  const totalRes = await client.query(
+    'SELECT COUNT(*)::int AS count FROM pages WHERE chapter_id = $1',
+    [chapterId]
+  );
+
+  const total = totalRes.rows[0].count;
+
+  await client.query(
+    'UPDATE chapters SET page_count = $1 WHERE id = $2',
+    [total, chapterId]
+  );
+
+  return { inserted: pages.length, total, skipped: false };
+}
+
+// ======================
+// 📚 MAIN CHAPTER UPSERT
+// ======================
+export async function upsertChapters(mangaId, chapters, options = {}) {
+  const { scrapeChapterPages } = options;
+
+  if (!mangaId) throw new Error('mangaId is required');
+  if (!Array.isArray(chapters) || chapters.length === 0) return [];
+  if (typeof scrapeChapterPages !== 'function') {
+    throw new Error('scrapeChapterPages is required');
+  }
+
   const client = await getPool().connect();
+  const results = [];
 
   try {
     await client.query('BEGIN');
 
-    for (const ch of chapters) {
-      const exists = await client.query(
-        'SELECT id FROM chapters WHERE manga_id=$1 AND chapter_number=$2',
-        [mangaId, ch.chapter_number]
+    for (const chapter of chapters) {
+      const ch = await upsertSingleChapter(client, mangaId, chapter);
+
+      const pageResult = await syncChapterPages(
+        client,
+        ch.id,
+        ch.url,
+        scrapeChapterPages
       );
 
-      let chapterId;
+      results.push({
+        chapter_id: ch.id,
+        chapter_number: ch.chapter_number,
+        page_count: pageResult.total
+      });
 
-      if (exists.rows.length === 0) {
-        chapterId = uuidv4();
-
-        await client.query(
-          `INSERT INTO chapters (id,manga_id,chapter_number,title,source_path,page_count)
-           VALUES ($1,$2,$3,$4,$5,0)`,
-          [
-            chapterId,
-            mangaId,
-            ch.chapter_number,
-            ch.title,
-            ch.source_path
-          ]
-        );
-
-        console.log(`💾 New chapter ${ch.chapter_number}`);
-
-      } else {
-        chapterId = exists.rows[0].id;
-        console.log(`📄 Chapter exists ${ch.chapter_number}`);
-      }
-
-      // ======================
-      // 🖼️ SCRAPEAR Y GUARDAR PÁGINAS
-      // ======================
-      const pageCheck = await client.query(
-        'SELECT COUNT(*)::int as count FROM pages WHERE chapter_id=$1',
-        [chapterId]
+      console.log(
+        `[sync] chapter ${ch.chapter_number} → pages=${pageResult.total}`
       );
-
-      if (pageCheck.rows[0].count > 0) {
-        console.log(`🖼️ Pages already exist`);
-        continue;
-      }
-
-      try {
-        console.log(`🖼️ Scraping pages for ${ch.chapter_number}`);
-
-        const pages = await mangadex.scrapeChapterPages(ch.url);
-
-        console.log(`📄 Pages found: ${pages.length}`);
-
-        for (let i = 0; i < pages.length; i++) {
-          await client.query(
-            `INSERT INTO pages (id, chapter_id, page_number, image_url)
-             VALUES ($1, $2, $3, $4)`,
-            [
-              uuidv4(),
-              chapterId,
-              i + 1,
-              pages[i].image_url
-            ]
-          );
-        }
-
-        await client.query(
-          `UPDATE chapters SET page_count = $1 WHERE id = $2`,
-          [pages.length, chapterId]
-        );
-
-      } catch (err) {
-        console.log('⚠️ Page scrape failed:', err.message);
-      }
-      for (const page of pages) {
-  console.log(`🖼️ Page ${page.page_number}: ${page.image_url}`);
-}
     }
 
     await client.query('COMMIT');
+    return results;
 
-  } catch (err) {
+  } catch (error) {
     await client.query('ROLLBACK');
-    throw err;
+    throw error;
   } finally {
     client.release();
   }
@@ -158,13 +249,21 @@ export async function upsertChapters(mangaId, chapters) {
 // 📊 REDIS
 // ======================
 export async function getScrapeProgress(id) {
-  return (await cacheGet(`scraper:progress:${id}`)) || 0;
+  try {
+    return (await cacheGet(`scraper:progress:${id}`)) || 0;
+  } catch {
+    return 0;
+  }
 }
 
 export async function setScrapeProgress(id, value) {
-  await cacheSet(`scraper:progress:${id}`, value);
+  try {
+    await cacheSet(`scraper:progress:${id}`, value);
+  } catch {}
 }
 
 export async function clearScrapeProgress(id) {
-  await cacheDelete(`scraper:progress:${id}`);
+  try {
+    await cacheDelete(`scraper:progress:${id}`);
+  } catch {}
 }

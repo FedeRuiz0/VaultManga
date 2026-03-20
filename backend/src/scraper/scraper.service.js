@@ -1,6 +1,5 @@
-import manganato from './sources/manganato.js';
-import { matchManga } from './matcher.service.js';
 import * as mangadex from './sources/mangadex.js';
+import { matchManga } from './matcher.service.js';
 
 import {
   upsertManga,
@@ -10,122 +9,134 @@ import {
   clearScrapeProgress
 } from './sync.service.js';
 
-const SOURCES = [mangadex, manganato];
+const SOURCE = mangadex;
+const BATCH_SIZE = Number(process.env.SCRAPER_BATCH_SIZE || 10);
+const BATCH_DELAY_MS = Number(process.env.SCRAPER_BATCH_DELAY_MS || 500);
+
+// ======================
+// 🔧 HELPERS
+// ======================
+function parseChapterNumber(value) {
+  const parsed = Number.parseFloat(String(value ?? '').trim());
+  return Number.isFinite(parsed) ? parsed : Number.MAX_SAFE_INTEGER;
+}
+
+function sortChaptersAscending(chapters) {
+  return [...chapters].sort((a, b) => {
+    const aNum = parseChapterNumber(a.chapter_number);
+    const bNum = parseChapterNumber(b.chapter_number);
+
+    if (aNum !== bNum) return aNum - bNum;
+
+    return String(a.chapter_number).localeCompare(
+      String(b.chapter_number),
+      undefined,
+      { numeric: true }
+    );
+  });
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
 // ======================
 // 🚀 MAIN SCRAPER
 // ======================
-export async function scrapeAndSyncManga(searchTitle, options = { resume: false }) {
-  console.log('🚀 Starting scrapeAndSyncManga:', searchTitle);
+export async function scrapeAndSyncManga(searchTitle, options = {}) {
+  const { resume = false } = options;
 
-  try {
-    let scrapedManga = null;
-    let scrapedChapters = [];
+  console.log(`[scraper] start title="${searchTitle}"`);
 
-    // 🔎 Buscar en fuentes
-    for (const source of SOURCES) {
-      try {
-        console.log('🔎 Trying source...');
+  const results = await SOURCE.searchManga(searchTitle, 5);
 
-        const results = await source.searchManga(searchTitle, 1);
-
-        if (!results || results.length === 0) {
-          console.log('⚠️ No results');
-          continue;
-        }
-
-        const top = results[0];
-
-        scrapedManga = await source.scrapeMangaDetails(top.url);
-        scrapedChapters = await source.scrapeChapterList(top.url);
-
-        if (!scrapedManga || scrapedChapters.length === 0) {
-          console.log('⚠️ No data from source');
-          continue;
-        }
-
-        // ✅ IMPORTANT: ordenar capítulos (cap 1 → último)
-        scrapedChapters.sort(
-          (a, b) => parseFloat(a.chapter_number) - parseFloat(b.chapter_number)
-        );
-
-        console.log(`✅ Source success: ${scrapedManga.title}`);
-        break;
-
-      } catch (err) {
-        console.log('⚠️ Source failed:', err.message);
-      }
-    }
-
-    if (!scrapedManga || scrapedChapters.length === 0) {
-      throw new Error('No data scraped from any source');
-    }
-
-    console.log(`📚 Chapters found: ${scrapedChapters.length}`);
-
-    // 🔗 matcher (opcional)
-    await matchManga(scrapedManga);
-
-    // 💾 guardar manga
-    const mangaRecord = await upsertManga(scrapedManga);
-    const mangaId = mangaRecord.id;
-
-    // 🧹 FORZAR SCRAPE COMPLETO (opción 2)
-    await clearScrapeProgress(mangaId);
-    let progress = 0;
-
-    console.log(`📊 Starting from 0/${scrapedChapters.length}`);
-
-    // ======================
-    // 📦 BATCH SYSTEM
-    // ======================
-    while (progress < scrapedChapters.length) {
-      const batchEnd = Math.min(progress + 10, scrapedChapters.length);
-
-      console.log(`📦 Processing ${progress + 1} → ${batchEnd}`);
-
-      const batch = scrapedChapters.slice(progress, batchEnd);
-
-      // 💾 Guardar capítulos
-      await upsertChapters(mangaId, batch);
-
-      // 🖼️ SCRAPEAR PÁGINAS (LO QUE TE FALTABA)
-      for (const ch of batch) {
-        try {
-          console.log(`🖼️ Scraping pages: ${ch.chapter_number}`);
-
-          const pages = await mangadex.scrapeChapterPages(ch.url);
-
-          console.log(`📄 Pages: ${pages.length}`);
-
-          // 👉 acá después podés insertar en DB (si tenés tabla pages)
-          // await insertPages(chapterId, pages)
-
-        } catch (err) {
-          console.log('⚠️ Pages failed:', err.message);
-        }
-      }
-
-      progress = batchEnd;
-      await setScrapeProgress(mangaId, progress);
-
-      if (progress < scrapedChapters.length) {
-        console.log('⏳ Waiting 10s...');
-        await new Promise(r => setTimeout(r, 10000));
-      }
-    }
-
-    console.log('🎉 SCRAPE COMPLETED');
-
-    return {
-      mangaId,
-      totalChapters: scrapedChapters.length
-    };
-
-  } catch (error) {
-    console.error('💥 Full scrape failed:', error.message);
-    throw error;
+  if (!results?.length) {
+    throw new Error(`No manga found: ${searchTitle}`);
   }
+
+  let scrapedManga = null;
+  let chapterList = [];
+
+  for (const candidate of results) {
+    try {
+      console.log(`[scraper] trying: ${candidate.title}`);
+
+      const [manga, chapters] = await Promise.all([
+        SOURCE.scrapeMangaDetails(candidate.url),
+        SOURCE.scrapeChapterList(candidate.url)
+      ]);
+
+      console.log(`👉 Chapters found: ${chapters.length}`);
+
+      // 🔥 ACEPTAR manga aunque tenga pocos capítulos (para debug real)
+      if (manga) {
+        scrapedManga = manga;
+        chapterList = chapters || [];
+        break;
+      }
+
+    } catch (error) {
+      console.warn(`[scraper] candidate failed: ${error.message}`);
+    }
+  }
+
+  if (!scrapedManga) {
+    throw new Error(`No valid manga data for: ${searchTitle}`);
+  }
+
+  if (!chapterList.length) {
+    console.warn("⚠️ WARNING: No chapters found (posible problema de idioma o API)");
+  }
+
+  const sortedChapters = sortChaptersAscending(chapterList);
+
+  console.log(`📚 Total chapters: ${sortedChapters.length}`);
+
+  await matchManga(scrapedManga);
+
+  const mangaRecord = await upsertManga(scrapedManga);
+  const mangaId = mangaRecord.id;
+
+  let progress = 0;
+
+  if (resume) {
+    progress = Number(await getScrapeProgress(mangaId)) || 0;
+  } else {
+    await clearScrapeProgress(mangaId);
+  }
+
+  console.log(`[scraper] starting at ${progress}/${sortedChapters.length}`);
+
+  // ======================
+  // 📦 BATCH SYSTEM
+  // ======================
+  while (progress < sortedChapters.length) {
+    const batchEnd = Math.min(progress + BATCH_SIZE, sortedChapters.length);
+    const batch = sortedChapters.slice(progress, batchEnd);
+
+    console.log(`📦 Processing ${progress + 1} → ${batchEnd}`);
+
+    await upsertChapters(mangaId, batch, {
+      scrapeChapterPages: SOURCE.scrapeChapterPages
+    });
+
+    progress = batchEnd;
+    await setScrapeProgress(mangaId, progress);
+
+    if (progress < sortedChapters.length && BATCH_DELAY_MS > 0) {
+      await sleep(BATCH_DELAY_MS);
+    }
+  }
+
+  console.log(`🎉 SCRAPE COMPLETED`);
+
+  return {
+    mangaId,
+    source: 'mangadex',
+    totalChapters: sortedChapters.length
+  };
 }
 
-export default { scrapeAndSyncManga };
+export default {
+  scrapeAndSyncManga
+};
