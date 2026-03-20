@@ -41,11 +41,36 @@ const asObject = (value) => {
 
 /** Manga Endpoints */
 export const mangaApi = {
-  async getAll({ page = 1, limit = 24 } = {}) {
-    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
-    const result = await request(`/manga?${params}`);
-    return asArray(result);
-  },
+  async getAll({
+  page = 1,
+  limit = 24,
+  search,
+  sort,
+  order,
+  status,
+  favorites,
+  incomplete,
+  genre,
+} = {}) {
+  const params = new URLSearchParams({
+    page: String(page),
+    limit: String(limit),
+  });
+
+  if (search) params.set('search', search);
+  if (sort) params.set('sort', sort);
+  if (order) params.set('order', order);
+  if (status) params.set('status', status);
+  if (genre) params.set('genre', genre);
+  if (typeof favorites === 'boolean') params.set('favorites', String(favorites));
+  if (typeof incomplete === 'boolean') params.set('incomplete', String(incomplete));
+
+  const result = await request(`/manga?${params}`);
+  return {
+    data: asArray(result),
+    pagination: result?.pagination || null,
+  };
+},
 
   async getById(id) {
     const result = await request(`/manga/${id}`);

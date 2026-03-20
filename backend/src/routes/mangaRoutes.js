@@ -110,6 +110,10 @@ router.get('/', async (req, res, next) => {
       }
     };
 
+    console.log('[GET /api/v1/manga] rows returned:', manga.length);
+    console.log('[GET /api/v1/manga] response payload:', result);
+    res.json(result);
+
     // Cache the result
     await mangaCache.setMangaList(page, limit, cacheKey, result);
 

@@ -21,6 +21,17 @@ function toChapterNumber(raw) {
   return String(raw).trim();
 }
 
+function mapMangaListItem(item) {
+  return {
+    id: item.id,
+    title: pickLocalizedValue(item.attributes?.title, 'en', 'Unknown title'),
+    url: `/manga/${item.id}`
+  };
+}
+
+
+
+
 // ======================
 // 🔍 SEARCH
 // ======================
@@ -107,18 +118,9 @@ export async function getLatestManga(limit = 20, offset = 0) {
     params.append('limit', String(limit));
     params.append('offset', String(offset));
     params.append('order[createdAt]', 'desc');
-    params.append('contentRating[]', 'safe');
-    params.append('contentRating[]', 'suggestive');
-    params.append('contentRating[]', 'erotica');
-    params.append('contentRating[]', 'pornographic');
 
     const { data } = await http.get('/manga', { params });
-
-    return (data?.data || []).map((item) => ({
-      id: item.id,
-      title: pickLocalizedValue(item.attributes?.title, 'en', 'Unknown title'),
-      url: `/manga/${item.id}`
-    }));
+    return (data?.data || []).map(mapMangaListItem);
   } catch (error) {
     console.error(`[mangadex] latest manga failed: ${error.message}`);
     return [];
@@ -133,12 +135,7 @@ export async function getRecentlyUpdatedManga(limit = 20, offset = 0) {
     params.append('order[updatedAt]', 'desc');
 
     const { data } = await http.get('/manga', { params });
-
-    return (data?.data || []).map((item) => ({
-      id: item.id,
-      title: pickLocalizedValue(item.attributes?.title, 'en', 'Unknown title'),
-      url: `/manga/${item.id}`
-    }));
+    return (data?.data || []).map(mapMangaListItem);
   } catch (error) {
     console.error(`[mangadex] updated manga failed: ${error.message}`);
     return [];
@@ -195,13 +192,30 @@ export async function scrapeChapterList(mangaUrl) {
       return chapters;
     };
 
-    const englishChapters = await fetchAll(['en']);
-    if (englishChapters.length > 0) {
-      return englishChapters;
-    }
+// 1. Intentar inglés
+let chapters = await fetchAll(['en']);
 
-    // fallback sin idioma
-    return fetchAll([]);
+// 2. Si no hay, intentar español
+if (chapters.length === 0) {
+  console.log('[mangadex] no EN chapters, trying ES...');
+  chapters = await fetchAll(['es']);
+}
+
+// 3. Si sigue vacío, traer TODO sin filtro
+if (chapters.length === 0) {
+  console.log('[mangadex] no ES chapters, fetching ALL languages...');
+  chapters = await fetchAll([]);
+}
+
+// 4. Eliminar duplicados
+const unique = new Map();
+for (const ch of chapters) {
+  if (!unique.has(ch.chapter_number)) {
+    unique.set(ch.chapter_number, ch);
+  }
+}
+
+return Array.from(unique.values());
   } catch (error) {
     console.error(`[mangadex] chapter list failed: ${error.message}`);
     return [];
@@ -236,6 +250,8 @@ export async function scrapeChapterPages(chapterId) {
 export default {
   searchManga,
   scrapeMangaDetails,
+  getLatestManga,
+  getRecentlyUpdatedManga,
   scrapeChapterList,
   scrapeChapterPages
 };

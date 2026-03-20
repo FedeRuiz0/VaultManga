@@ -84,12 +84,44 @@ export async function upsertManga(scrapedManga) {
   }
 }
 
+export async function mangaExistsBySource(sourcePath) {
+  if (!sourcePath) return false;
+
+  const result = await getPool().query(
+    'SELECT 1 FROM manga WHERE source_path = $1 LIMIT 1',
+    [sourcePath]
+  );
+
+  return result.rows.length > 0;
+}
+
+export async function getAllManga() {
+  const result = await getPool().query(
+    'SELECT id, title, source_path FROM manga ORDER BY updated_at DESC NULLS LAST, created_at DESC'
+  );
+
+  return result.rows;
+}
+
 // ======================
 // 📖 CHAPTER UPSERT
 // ======================
 async function upsertSingleChapter(client, mangaId, chapter) {
   const chapterNumber = normalizeChapterNumber(chapter.chapter_number);
+  const exists = await client.query(
+  `SELECT id FROM chapters 
+   WHERE manga_id = $1 AND chapter_number = $2`,
+  [mangaId, chapterNumber]
+);
 
+if (exists.rows.length > 0) {
+  return {
+    id: exists.rows[0].id,
+    chapter_number: chapterNumber,
+    url: chapter.url,
+    alreadyExists: true
+  };
+}
   if (!chapterNumber) {
     throw new Error('chapter_number is required');
   }
@@ -220,7 +252,20 @@ export async function upsertChapters(mangaId, chapters, options = {}) {
     await client.query('BEGIN');
 
     for (const chapter of chapters) {
-      const chapterRow = await upsertSingleChapter(client, mangaId, chapter);
+      const exists = await client.query(
+  `SELECT id FROM chapters 
+   WHERE manga_id = $1 AND chapter_number = $2`,
+  [mangaId, chapterNumber]
+);
+
+if (exists.rows.length > 0) {
+  return {
+    id: exists.rows[0].id,
+    chapter_number: chapterNumber,
+    url: chapter.url,
+    alreadyExists: true
+  };
+}
 
       const pageResult = await syncChapterPages(
         client,
