@@ -3,14 +3,14 @@ import { getPool } from '../db/database.js';
 import { cacheGet, cacheSet, cacheDelete } from '../db/redis.js';
 
 // ======================
-// 🔧 HELPERS
+// 🧠 HELPERS
 // ======================
 function normalizeChapterNumber(value) {
   return String(value ?? '').trim();
 }
 
 // ======================
-// 🧠 MANGA UPSERT
+// 📚 MANGA UPSERT
 // ======================
 export async function upsertManga(scrapedManga) {
   if (!scrapedManga?.source_path) {
@@ -52,7 +52,6 @@ export async function upsertManga(scrapedManga) {
       );
 
       console.log(`[sync] manga updated: ${mangaId}`);
-
     } else {
       mangaId = scrapedManga.id || uuidv4();
 
@@ -86,7 +85,7 @@ export async function upsertManga(scrapedManga) {
 }
 
 // ======================
-// 📚 CHAPTER UPSERT
+// 📖 CHAPTER UPSERT
 // ======================
 async function upsertSingleChapter(client, mangaId, chapter) {
   const chapterNumber = normalizeChapterNumber(chapter.chapter_number);
@@ -121,16 +120,17 @@ async function upsertSingleChapter(client, mangaId, chapter) {
 }
 
 // ======================
-// 🖼️ PAGES SYNC
+// 🖼️ PAGE SYNC
 // ======================
 async function syncChapterPages(client, chapterId, chapterUrlOrId, scrapeChapterPages) {
-  const existing = await client.query(
+  const existingRes = await client.query(
     'SELECT COUNT(*)::int AS count FROM pages WHERE chapter_id = $1',
     [chapterId]
   );
 
-  const existingCount = existing.rows[0].count;
+  const existingCount = existingRes.rows[0].count;
 
+  // Ya existen → no re-scrapear
   if (existingCount > 0) {
     await client.query(
       'UPDATE chapters SET page_count = $1 WHERE id = $2',
@@ -140,9 +140,9 @@ async function syncChapterPages(client, chapterId, chapterUrlOrId, scrapeChapter
     return { inserted: 0, total: existingCount, skipped: true };
   }
 
-  const pages = await scrapeChapterPages(chapterUrlOrId);
+  const scrapedPages = await scrapeChapterPages(chapterUrlOrId);
 
-  if (!pages || pages.length === 0) {
+  if (!Array.isArray(scrapedPages) || scrapedPages.length === 0) {
     await client.query(
       'UPDATE chapters SET page_count = 0 WHERE id = $1',
       [chapterId]
@@ -154,31 +154,32 @@ async function syncChapterPages(client, chapterId, chapterUrlOrId, scrapeChapter
   const values = [];
   const placeholders = [];
 
-  pages.forEach((page, i) => {
+  for (let i = 0; i < scrapedPages.length; i++) {
+    const page = scrapedPages[i];
+    const pageNumber = Number(page.page_number || i + 1);
+    const imageUrl = page.image_url;
+
+    if (!imageUrl) continue;
+
     const base = values.length;
 
-    values.push(
-      uuidv4(),
-      chapterId,
-      page.page_number || i + 1,
-      page.image_url,
-      page.image_url
-    );
-
+    values.push(uuidv4(), chapterId, pageNumber, imageUrl, imageUrl);
     placeholders.push(
       `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5})`
     );
-  });
+  }
 
-  await client.query(
-    `INSERT INTO pages (id, chapter_id, page_number, image_path, image_url)
-     VALUES ${placeholders.join(',')}
-     ON CONFLICT (chapter_id, page_number)
-     DO UPDATE SET
-       image_url = EXCLUDED.image_url,
-       image_path = EXCLUDED.image_path`,
-    values
-  );
+  if (placeholders.length > 0) {
+    await client.query(
+      `INSERT INTO pages (id, chapter_id, page_number, image_path, image_url)
+       VALUES ${placeholders.join(',')}
+       ON CONFLICT (chapter_id, page_number)
+       DO UPDATE SET
+         image_url = EXCLUDED.image_url,
+         image_path = EXCLUDED.image_path`,
+      values
+    );
+  }
 
   const totalRes = await client.query(
     'SELECT COUNT(*)::int AS count FROM pages WHERE chapter_id = $1',
@@ -192,7 +193,11 @@ async function syncChapterPages(client, chapterId, chapterUrlOrId, scrapeChapter
     [total, chapterId]
   );
 
-  return { inserted: pages.length, total, skipped: false };
+  return {
+    inserted: placeholders.length,
+    total,
+    skipped: false
+  };
 }
 
 // ======================
@@ -203,8 +208,9 @@ export async function upsertChapters(mangaId, chapters, options = {}) {
 
   if (!mangaId) throw new Error('mangaId is required');
   if (!Array.isArray(chapters) || chapters.length === 0) return [];
+
   if (typeof scrapeChapterPages !== 'function') {
-    throw new Error('scrapeChapterPages is required');
+    throw new Error('options.scrapeChapterPages function is required');
   }
 
   const client = await getPool().connect();
@@ -214,23 +220,25 @@ export async function upsertChapters(mangaId, chapters, options = {}) {
     await client.query('BEGIN');
 
     for (const chapter of chapters) {
-      const ch = await upsertSingleChapter(client, mangaId, chapter);
+      const chapterRow = await upsertSingleChapter(client, mangaId, chapter);
 
       const pageResult = await syncChapterPages(
         client,
-        ch.id,
-        ch.url,
+        chapterRow.id,
+        chapterRow.url,
         scrapeChapterPages
       );
 
       results.push({
-        chapter_id: ch.id,
-        chapter_number: ch.chapter_number,
-        page_count: pageResult.total
+        chapter_id: chapterRow.id,
+        chapter_number: chapterRow.chapter_number,
+        page_count: pageResult.total,
+        pages_inserted: pageResult.inserted,
+        pages_skipped: pageResult.skipped
       });
 
       console.log(
-        `[sync] chapter ${ch.chapter_number} → pages=${pageResult.total}`
+        `[sync] chapter ${chapterRow.chapter_number} pages=${pageResult.total} inserted=${pageResult.inserted} skipped=${pageResult.skipped}`
       );
     }
 
@@ -246,7 +254,7 @@ export async function upsertChapters(mangaId, chapters, options = {}) {
 }
 
 // ======================
-// 📊 REDIS
+// 📊 REDIS PROGRESS
 // ======================
 export async function getScrapeProgress(id) {
   try {
@@ -259,11 +267,15 @@ export async function getScrapeProgress(id) {
 export async function setScrapeProgress(id, value) {
   try {
     await cacheSet(`scraper:progress:${id}`, value);
-  } catch {}
+  } catch {
+    // Redis opcional
+  }
 }
 
 export async function clearScrapeProgress(id) {
   try {
     await cacheDelete(`scraper:progress:${id}`);
-  } catch {}
+  } catch {
+    // Redis opcional
+  }
 }

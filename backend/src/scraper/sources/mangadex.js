@@ -5,11 +5,7 @@ const DEFAULT_TIMEOUT_MS = Number(process.env.SCRAPER_HTTP_TIMEOUT_MS || 15000);
 
 const http = axios.create({
   baseURL: BASE_URL,
-  timeout: DEFAULT_TIMEOUT_MS,
-  headers: {
-    'User-Agent': 'VaultManga/1.0 (+https://github.com)',
-    Accept: 'application/json'
-  }
+  timeout: DEFAULT_TIMEOUT_MS
 });
 
 function pickLocalizedValue(valueObj, preferred = 'en', fallback = '') {
@@ -79,11 +75,9 @@ export async function scrapeMangaDetails(mangaUrl) {
     const coverRel = (manga.relationships || []).find((r) => r.type === 'cover_art');
 
     let coverImage = null;
-
     if (coverRel?.id) {
       const { data: coverData } = await http.get(`/cover/${coverRel.id}`);
       const fileName = coverData?.data?.attributes?.fileName;
-
       if (fileName) {
         coverImage = `https://uploads.mangadex.org/covers/${mangaId}/${fileName}`;
       }
@@ -97,7 +91,6 @@ export async function scrapeMangaDetails(mangaUrl) {
       author: authorRel?.attributes?.name || artistRel?.attributes?.name || null,
       status: attrs.status || 'unknown'
     };
-
   } catch (error) {
     console.error(`[mangadex] details failed: ${error.message}`);
     throw error;
@@ -107,6 +100,51 @@ export async function scrapeMangaDetails(mangaUrl) {
 // ======================
 // 📚 CHAPTER LIST
 // ======================
+
+export async function getLatestManga(limit = 20, offset = 0) {
+  try {
+    const params = new URLSearchParams();
+    params.append('limit', String(limit));
+    params.append('offset', String(offset));
+    params.append('order[createdAt]', 'desc');
+    params.append('contentRating[]', 'safe');
+    params.append('contentRating[]', 'suggestive');
+    params.append('contentRating[]', 'erotica');
+    params.append('contentRating[]', 'pornographic');
+
+    const { data } = await http.get('/manga', { params });
+
+    return (data?.data || []).map((item) => ({
+      id: item.id,
+      title: pickLocalizedValue(item.attributes?.title, 'en', 'Unknown title'),
+      url: `/manga/${item.id}`
+    }));
+  } catch (error) {
+    console.error(`[mangadex] latest manga failed: ${error.message}`);
+    return [];
+  }
+}
+
+export async function getRecentlyUpdatedManga(limit = 20, offset = 0) {
+  try {
+    const params = new URLSearchParams();
+    params.append('limit', String(limit));
+    params.append('offset', String(offset));
+    params.append('order[updatedAt]', 'desc');
+
+    const { data } = await http.get('/manga', { params });
+
+    return (data?.data || []).map((item) => ({
+      id: item.id,
+      title: pickLocalizedValue(item.attributes?.title, 'en', 'Unknown title'),
+      url: `/manga/${item.id}`
+    }));
+  } catch (error) {
+    console.error(`[mangadex] updated manga failed: ${error.message}`);
+    return [];
+  }
+}
+
 export async function scrapeChapterList(mangaUrl) {
   const mangaId = String(mangaUrl || '').split('/').filter(Boolean).pop();
   if (!mangaId) {
@@ -114,43 +152,56 @@ export async function scrapeChapterList(mangaUrl) {
   }
 
   try {
-    const chapters = [];
-    const limit = 100;
-    let offset = 0;
+    const fetchAll = async (translatedLanguage = ['en']) => {
+      const chapters = [];
+      const limit = 100;
+      let offset = 0;
 
-    while (true) {
-      const { data } = await http.get('/chapter', {
-        params: {
-          manga: mangaId,
-          translatedLanguage: ['en', 'es', 'pt-br', 'ja', 'it'],
-          limit,
-          offset,
-          includes: ['scanlation_group'],
-          order: { chapter: 'asc' }
+      while (true) {
+        const params = new URLSearchParams();
+        params.append('limit', String(limit));
+        params.append('offset', String(offset));
+        params.append('order[chapter]', 'asc');
+        params.append('contentRating[]', 'safe');
+        params.append('contentRating[]', 'suggestive');
+        params.append('contentRating[]', 'erotica');
+        params.append('contentRating[]', 'pornographic');
+        params.append('manga', mangaId);
+
+        for (const lang of translatedLanguage) {
+          params.append('translatedLanguage[]', lang);
         }
-      });
 
-      const items = data?.data || [];
-      if (items.length === 0) break;
+        const { data } = await http.get('/chapter', { params });
+        const items = data?.data || [];
+        if (items.length === 0) break;
 
-      for (const item of items) {
-        const chapterNumber = toChapterNumber(item.attributes?.chapter);
-        if (!chapterNumber) continue;
+        for (const item of items) {
+          const chapterNumber = toChapterNumber(item.attributes?.chapter);
+          if (!chapterNumber) continue;
 
-        chapters.push({
-          chapter_number: chapterNumber,
-          title: item.attributes?.title || `Chapter ${chapterNumber}`,
-          source_path: `mangadex:${item.id}`,
-          url: item.id
-        });
+          chapters.push({
+            chapter_number: chapterNumber,
+            title: item.attributes?.title || `Chapter ${chapterNumber}`,
+            source_path: `mangadex:${item.id}`,
+            url: item.id
+          });
+        }
+
+        offset += limit;
+        if (items.length < limit) break;
       }
 
-      offset += limit;
-      if (items.length < limit) break;
+      return chapters;
+    };
+
+    const englishChapters = await fetchAll(['en']);
+    if (englishChapters.length > 0) {
+      return englishChapters;
     }
 
-    return chapters;
-
+    // fallback sin idioma
+    return fetchAll([]);
   } catch (error) {
     console.error(`[mangadex] chapter list failed: ${error.message}`);
     return [];
@@ -165,7 +216,6 @@ export async function scrapeChapterPages(chapterId) {
 
   try {
     const { data } = await http.get(`/at-home/server/${chapterId}`);
-
     const baseUrl = data?.baseUrl;
     const chapter = data?.chapter;
 
@@ -177,7 +227,6 @@ export async function scrapeChapterPages(chapterId) {
       page_number: index + 1,
       image_url: `${baseUrl}/data/${chapter.hash}/${fileName}`
     }));
-
   } catch (error) {
     console.error(`[mangadex] page scrape failed for ${chapterId}: ${error.message}`);
     return [];
