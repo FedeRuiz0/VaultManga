@@ -35,6 +35,22 @@ function mapMangaListItem(item) {
 // ======================
 // 🔍 SEARCH
 // ======================
+
+export async function getPopularManga(limit = 20, offset = 0) {
+  try {
+    const params = new URLSearchParams();
+    params.append('limit', String(limit));
+    params.append('offset', String(offset));
+    params.append('order[followedCount]', 'desc');
+
+    const { data } = await http.get('/manga', { params });
+    return (data?.data || []).map(mapMangaListItem);
+  } catch (error) {
+    console.error(`[mangadex] popular manga failed: ${error.message}`);
+    return [];
+  }
+}
+
 export async function searchManga(query, limit = 5) {
   if (!query || !String(query).trim()) return [];
 
@@ -144,12 +160,10 @@ export async function getRecentlyUpdatedManga(limit = 20, offset = 0) {
 
 export async function scrapeChapterList(mangaUrl) {
   const mangaId = String(mangaUrl || '').split('/').filter(Boolean).pop();
-  if (!mangaId) {
-    throw new Error('Invalid manga URL/path for MangaDex chapter list');
-  }
+  if (!mangaId) throw new Error('Invalid manga URL/path for MangaDex chapter list');
 
   try {
-    const fetchAll = async (translatedLanguage = ['en']) => {
+    const fetchAll = async () => {
       const chapters = [];
       const limit = 100;
       let offset = 0;
@@ -158,16 +172,9 @@ export async function scrapeChapterList(mangaUrl) {
         const params = new URLSearchParams();
         params.append('limit', String(limit));
         params.append('offset', String(offset));
-        params.append('order[chapter]', 'asc');
-        params.append('contentRating[]', 'safe');
-        params.append('contentRating[]', 'suggestive');
-        params.append('contentRating[]', 'erotica');
-        params.append('contentRating[]', 'pornographic');
+        params.append('order[readableAt]', 'asc');
+        params.append('includeFutureUpdates', 'false');
         params.append('manga[]', mangaId);
-
-        for (const lang of translatedLanguage) {
-          params.append('translatedLanguage[]', lang);
-        }
 
         const { data } = await http.get('/chapter', { params });
         const items = data?.data || [];
@@ -191,31 +198,17 @@ export async function scrapeChapterList(mangaUrl) {
         if (items.length < limit) break;
       }
 
+      console.log(`[mangadex] scraped ${chapters.length} chapters`);
       return chapters;
     };
 
-// 1. Intentar inglés
-let chapters = await fetchAll(['en']);
+    const chapters = await fetchAll();
 
-// 2. Si no hay, intentar español
-if (chapters.length === 0) {
-      console.log('[mangadex] no EN chapters, trying ES...');
-      chapters = await fetchAll(['es']);
-    }
-
-// 3. Si sigue vacío, traer TODO sin filtro
-if (chapters.length === 0) {
-      console.log('[mangadex] no ES chapters, fetching ALL languages...');
-      chapters = await fetchAll([]);
-    }
-
-// 4. Eliminar duplicados
+    // Eliminar duplicados
     const unique = new Map();
     for (const ch of chapters) {
       const key = `${ch.chapter_number}|${ch.language}`;
-      if (!unique.has(key)) {
-        unique.set(key, ch);
-      }
+      if (!unique.has(key)) unique.set(key, ch);
     }
 
     return Array.from(unique.values());
@@ -255,6 +248,7 @@ export default {
   scrapeMangaDetails,
   getLatestManga,
   getRecentlyUpdatedManga,
+  getPopularManga,
   scrapeChapterList,
   scrapeChapterPages
 };

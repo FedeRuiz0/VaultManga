@@ -61,9 +61,12 @@ export async function scrapeAndSyncManga(searchTitle, options = {}) {
     try {
       console.log(`[scraper] trying: ${candidate.title}`);
 
+      // extraemos solo la ID
+      const mangaId = candidate.id;
+
       const [manga, chapters] = await Promise.all([
-        SOURCE.scrapeMangaDetails(candidate.url),
-        SOURCE.scrapeChapterList(candidate.url)
+        SOURCE.scrapeMangaDetails(mangaId),
+        SOURCE.scrapeChapterList(mangaId)
       ]);
 
       console.log(`👉 Chapters found: ${chapters.length}`);

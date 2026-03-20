@@ -17,10 +17,10 @@ async function discoverNewManga() {
   console.log('🔍 Discovering new manga...');
 
   try {
-    const latest = await mangadex.getLatestManga(DISCOVERY_LIMIT, 0);
-    console.log(`[bot] discovery candidates=${latest.length}`);
+    const popular = await mangadex.getPopularManga(DISCOVERY_LIMIT, 0);
+    console.log(`[bot] discovered candidates=${popular.length}`);
 
-    for (const manga of latest) {
+    for (const manga of popular) {
       const sourcePath = `mangadex:${manga.id}`;
 
       try {
