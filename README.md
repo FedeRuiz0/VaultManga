@@ -118,18 +118,6 @@ This project is also a **portfolio-level system design showcase**.
 
 ---
 
-## 🚀 Features
-
-- 📚 Smart Library (auto sync)
-- 🎨 Webtoon Reader (infinite scroll)
-- 🧠 AI-ready architecture
-- 📊 Reading analytics
-- ⚡ Redis caching (80%+ load reduction)
-- 🌙 Modern UI + animations
-- 🔄 Automated ingestion system
-
----
-
 ## 🛠️ Tech Stack
 
 ### Frontend
