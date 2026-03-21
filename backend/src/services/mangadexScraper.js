@@ -92,8 +92,19 @@ async getChapters(mangaDexId) {
 
 async importChapters(mangaId, mangaDexId) {
   try {
-    const chapters = await this.getChapters(mangaDexId);
-    let importedCount = 0;
+    let chapters = await this.getChapters(mangaDexId);
+    
+
+    // ORDENADO
+    chapters = chapters
+      .filter(c => c.attributes?.chapter)
+      .sort((a, b) => {
+        const aNum = parseFloat(a.attributes.chapter) || 0;
+        const bNum = parseFloat(b.attributes.chapter) || 0;
+        return aNum - bNum;
+      });
+
+      let importedCount = 0;
 
     console.log(`📚 Importing ${chapters.length} chapters for manga ${mangaId}`);
 

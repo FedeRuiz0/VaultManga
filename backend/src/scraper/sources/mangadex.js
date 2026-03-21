@@ -160,10 +160,10 @@ export async function getRecentlyUpdatedManga(limit = 20, offset = 0) {
 
 export async function scrapeChapterList(mangaUrl) {
   const mangaId = String(mangaUrl || '').split('/').filter(Boolean).pop();
-  if (!mangaId) throw new Error('Invalid manga URL/path for MangaDex chapter list');
+  if (!mangaId) throw new Error('Invalid manga ID');
 
   try {
-    const fetchAll = async () => {
+    const fetchAll = async (translatedLanguage = ['en']) => {
       const chapters = [];
       const limit = 100;
       let offset = 0;
@@ -172,11 +172,18 @@ export async function scrapeChapterList(mangaUrl) {
         const params = new URLSearchParams();
         params.append('limit', String(limit));
         params.append('offset', String(offset));
-        params.append('order[readableAt]', 'asc');
-        params.append('includeFutureUpdates', 'false');
-        params.append('manga[]', mangaId);
+        params.append('order[chapter]', 'asc');
 
-        const { data } = await http.get('/chapter', { params });
+        // ✅ SOLO agregar idiomas si hay
+        if (translatedLanguage.length > 0) {
+          for (const lang of translatedLanguage) {
+            params.append('translatedLanguage[]', lang);
+          }
+        }
+
+        // ✅ ENDPOINT CORRECTO
+        const { data } = await http.get(`/manga/${mangaId}/feed`, { params });
+
         const items = data?.data || [];
         if (items.length === 0) break;
 
@@ -198,13 +205,22 @@ export async function scrapeChapterList(mangaUrl) {
         if (items.length < limit) break;
       }
 
-      console.log(`[mangadex] scraped ${chapters.length} chapters`);
       return chapters;
     };
 
-    const chapters = await fetchAll();
+    let chapters = await fetchAll(['en']);
 
-    // Eliminar duplicados
+    if (chapters.length === 0) {
+      console.log('[mangadex] no EN chapters, trying ES...');
+      chapters = await fetchAll(['es']);
+    }
+
+    if (chapters.length === 0) {
+      console.log('[mangadex] no ES chapters, fetching ALL...');
+      chapters = await fetchAll([]);
+    }
+
+    // dedupe
     const unique = new Map();
     for (const ch of chapters) {
       const key = `${ch.chapter_number}|${ch.language}`;
@@ -212,6 +228,7 @@ export async function scrapeChapterList(mangaUrl) {
     }
 
     return Array.from(unique.values());
+
   } catch (error) {
     console.error(`[mangadex] chapter list failed: ${error.message}`);
     return [];

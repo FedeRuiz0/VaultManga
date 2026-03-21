@@ -88,15 +88,14 @@ router.get('/manga/:mangaId', async (req, res, next) => {
 });
 
 
-// Get single chapter with auto page import
 router.get('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
 
     const chapter = await queryOne(`
-      SELECT c.*, c.mangadex_id
-FROM chapters c
-WHERE c.id = $1
+      SELECT c.*
+      FROM chapters c
+      WHERE c.id = $1
     `, [id]);
 
     if (!chapter) {
@@ -108,29 +107,43 @@ WHERE c.id = $1
       'SELECT COUNT(*) as count FROM pages WHERE chapter_id = $1', 
       [id]
     );
-    
-    if (parseInt(pageCountResult.count) === 0 && chapter.source_path && chapter.source_path.startsWith('mangadex://')) {
-      
+
+    let finalChapter = chapter;
+
+    if (
+      parseInt(pageCountResult.count) === 0 &&
+      chapter.source_path &&
+      chapter.source_path.startsWith('mangadex:')
+    ) {
       const { default: pageScraper } = await import('../services/pageScraper.js');
-      const mangadexChapterId = chapter.source_path.replace('mangadex://', '');
+
+      const mangadexChapterId = chapter.source_path.split(':')[1];
+
       const imported = await pageScraper.importPages(id, mangadexChapterId);
       console.log(`✅ Imported ${imported} pages for chapter ${id}`);
-      
+
       // Refresh chapter data
-      const refreshedChapter = await queryOne(`
+      finalChapter = await queryOne(`
         SELECT 
           c.*,
-          m.id as manga_id,
           m.title as manga_title
         FROM chapters c
         JOIN manga m ON c.manga_id = m.id
         WHERE c.id = $1
       `, [id]);
-      
-      res.json(refreshedChapter);
-    } else {
-      res.json(chapter);
     }
+
+    // 🔥 TRAER SIEMPRE LAS PÁGINAS
+    const pages = await queryAll(
+      'SELECT * FROM pages WHERE chapter_id = $1 ORDER BY page_number ASC',
+      [id]
+    );
+
+    res.json({
+      ...finalChapter,
+      pages
+    });
+
   } catch (error) {
     console.error('Chapter get error:', error);
     next(error);

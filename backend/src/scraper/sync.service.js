@@ -108,22 +108,24 @@ export async function getAllManga() {
 // ======================
 async function upsertSingleChapter(client, mangaId, chapter) {
   const chapterNumber = normalizeChapterNumber(chapter.chapter_number);
-  const exists = await client.query(
-  `SELECT id FROM chapters 
-   WHERE manga_id = $1 AND chapter_number = $2`,
-  [mangaId, chapterNumber]
-);
 
-if (exists.rows.length > 0) {
-  return {
-    id: exists.rows[0].id,
-    chapter_number: chapterNumber,
-    url: chapter.url,
-    alreadyExists: true
-  };
-}
   if (!chapterNumber) {
     throw new Error('chapter_number is required');
+  }
+
+  const exists = await client.query(
+    `SELECT id FROM chapters 
+     WHERE manga_id = $1 AND chapter_number = $2`,
+    [mangaId, chapterNumber]
+  );
+
+  if (exists.rows.length > 0) {
+    return {
+      id: exists.rows[0].id,
+      chapter_number: chapterNumber,
+      url: chapter.url,
+      alreadyExists: true
+    };
   }
 
   const result = await client.query(
@@ -252,40 +254,29 @@ export async function upsertChapters(mangaId, chapters, options = {}) {
     await client.query('BEGIN');
 
     for (const chapter of chapters) {
-      const exists = await client.query(
-  `SELECT id FROM chapters 
-   WHERE manga_id = $1 AND chapter_number = $2`,
-  [mangaId, chapterNumber]
-);
+  
+  const chapterRow = await upsertSingleChapter(client, mangaId, chapter);
 
-if (exists.rows.length > 0) {
-  return {
-    id: exists.rows[0].id,
-    chapter_number: chapterNumber,
-    url: chapter.url,
-    alreadyExists: true
-  };
+  /*const pageResult = await syncChapterPages(
+    client,
+    chapterRow.id,
+    chapterRow.url || chapter.url || chapterRow.id,
+    scrapeChapterPages
+  ); */
+
+  // ❌ NO SCRAPEAR PÁGINAS ACÁ
+results.push({
+  chapter_id: chapterRow.id,
+  chapter_number: chapterRow.chapter_number,
+  page_count: 0,
+  pages_inserted: 0,
+  pages_skipped: true
+});
+
+  console.log(
+    `[sync] chapter ${chapterRow.chapter_number} pages=${pageResult.total} inserted=${pageResult.inserted} skipped=${pageResult.skipped}`
+  );
 }
-
-      const pageResult = await syncChapterPages(
-        client,
-        chapterRow.id,
-        chapterRow.url,
-        scrapeChapterPages
-      );
-
-      results.push({
-        chapter_id: chapterRow.id,
-        chapter_number: chapterRow.chapter_number,
-        page_count: pageResult.total,
-        pages_inserted: pageResult.inserted,
-        pages_skipped: pageResult.skipped
-      });
-
-      console.log(
-        `[sync] chapter ${chapterRow.chapter_number} pages=${pageResult.total} inserted=${pageResult.inserted} skipped=${pageResult.skipped}`
-      );
-    }
 
     await client.query('COMMIT');
     return results;
