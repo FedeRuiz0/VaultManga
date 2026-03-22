@@ -145,38 +145,51 @@ export default function Reader() {
       }
     }, 2000);
 
-  // ✅ marcar leído
+  // Auto-open next chapter when user reaches final page
   useEffect(() => {
-    if (currentPage === totalPages - 1 && totalPages > 0 && !hasMarkedRead.current) {
-      hasMarkedRead.current = true;
-      chapterApi.markRead(chapterId).catch(() => {
-        hasMarkedRead.current = false;
-      });
+    if (totalPages === 0 || currentPage !== totalPages - 1 || isNavigatingNext || hasAutoNavigated.current) {
+      return;
     }
-  }, [currentPage, totalPages, chapterId]);
 
-  // ⌨ navegación teclado
+    hasAutoNavigated.current = true;
+
+    const timer = setTimeout(async () => {
+      try {
+        const next = await chapterApi.getNext(chapterId);
+        if (!next?.id) return;
+        setIsNavigatingNext(true);
+        navigate(`/reader/${next.id}`);
+      } catch (error) {
+        console.warn('Unable to auto-advance chapter', error);
+      } finally {
+        setIsNavigatingNext(false);
+      }
+    }, 600);
+
+    return () => clearTimeout(timer);
+  }, [chapterId, currentPage, totalPages, navigate, isNavigatingNext]);
+
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
-        pageRefs.current[currentPage + 1]?.scrollIntoView({ behavior: 'smooth' });
+        pageRefs.current[currentPage + 1]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
+
       if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-        pageRefs.current[currentPage - 1]?.scrollIntoView({ behavior: 'smooth' });
+        pageRefs.current[currentPage - 1]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
-      if (e.key === 'Escape') {
-        if (chapter?.manga_id) navigate(`/manga/${chapter.manga_id}`);
+
+      if (e.key === 'Escape' && chapter?.manga_id) {
+        navigate(`/manga/${chapter.manga_id}`);
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentPage, chapter]);
+  }, [currentPage, chapter, navigate]);
 
-  // ⏳ loading
   if (chapterLoading || pagesLoading) return <LoadingScreen />;
 
-  // ❌ error
   if (chapterError || pagesError || !chapter || pages.length === 0) {
     return (
       <div className="fixed inset-0 bg-black text-white flex items-center justify-center p-6">
@@ -185,10 +198,7 @@ export default function Reader() {
           <p className="text-gray-400">
             {chapterQueryError?.message || pagesQueryError?.message || 'Chapter not found'}
           </p>
-          <button
-            onClick={() => navigate(-1)}
-            className="px-4 py-2 bg-blue-600 rounded-lg"
-          >
+          <button onClick={() => navigate(-1)} className="px-4 py-2 bg-blue-600 rounded-lg">
             Go Back
           </button>
         </div>
@@ -196,28 +206,28 @@ export default function Reader() {
     );
   }
 
-  // ✅ render
   return (
     <div className="fixed inset-0 bg-black">
       <div
         ref={containerRef}
-        className="h-screen overflow-y-auto"
+        className="h-screen overflow-y-auto scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         style={{ backgroundColor: settings.backgroundColor }}
       >
         <div className="max-w-4xl mx-auto">
           {pages.map((page, index) => (
             <div
               key={page.id || index}
-              ref={(el) => (pageRefs.current[index] = el)}
+              ref={(el) => {
+                pageRefs.current[index] = el;
+              }}
               className="min-h-screen flex justify-center"
             >
               <img
+                loading={index <= 1 ? 'eager' : 'lazy'}
+                decoding="async"
                 src={page.display_path || page.image_path}
                 alt={`Page ${index + 1}`}
-                className={clsx(
-                  'max-w-full h-auto',
-                  settings.fitMode === 'width' && 'w-full'
-                )}
+                className={clsx('max-w-full h-auto', settings.fitMode === 'width' && 'w-full')}
                 onLoad={() => index === 0 && setIsLoadingPage(false)}
               />
             </div>
@@ -226,9 +236,9 @@ export default function Reader() {
       </div>
 
       <AnimatePresence>
-        {(startReadingMutation.isPending || endReadingMutation.isPending) && (
-          <motion.div className="absolute top-4 right-4 text-xs bg-black/80 px-3 py-2 rounded">
-            Syncing...
+        {(startReadingMutation.isPending || endReadingMutation.isPending || isNavigatingNext) && (
+          <motion.div className="absolute top-4 right-4 text-xs bg-black/80 px-3 py-2 rounded text-white">
+            {isNavigatingNext ? 'Opening next chapter...' : 'Syncing...'}
           </motion.div>
         )}
 

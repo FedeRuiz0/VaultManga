@@ -53,7 +53,7 @@ router.get('/chapter/:chapterId', async (req, res, next) => {
     let pages = await queryAll(`
       SELECT 
         p.*,
-        CASE 
+        CASE
           WHEN p.is_cached THEN CONCAT('/storage/cached/', p.chapter_id, '/', p.page_number, '.webp')
           ELSE p.image_path
         END as display_path
