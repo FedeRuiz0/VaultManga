@@ -67,8 +67,8 @@ services:
       dockerfile: Dockerfile
     container_name: mangavault_web
     environment:
-      VITE_API_URL: http://backend:3001/api
-      VITE_WS_URL: ws://backend:3001
+      VITE_API_URL: http://mangavault_api:3001/api
+      VITE_WS_URL: ws://mangavault_api:3001
     command: npm run dev -- --host 0.0.0.0
     ports:
       - "5173:5173"

@@ -13,7 +13,7 @@ async function ensureChapterPages(chapter) {
   if (!chapter.source_path?.startsWith('mangadex://')) return;
   
   const redis = getRedis();
-  const lockKey = `lock:chapter:scrape:chapter:${chapterId}`;
+  const lockKey = `lock:chapter:scrape:chapter:${id}`;
   const lock = await redis.set(lockKey, '1', {NX: true, EX: 120}); 
 
   if (lock) {
@@ -275,4 +275,3 @@ router.delete('/:id', async (req, res, next) => {
 });
 
 export default router;
-

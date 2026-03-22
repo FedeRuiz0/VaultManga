@@ -43,13 +43,21 @@ export default function Reader() {
   const {
     data: pages = [],
     isLoading: pagesLoading,
+    isFetching: pagesFetching,
     isError: pagesError,
     error: pagesQueryError,
   } = useQuery({
     queryKey: ['pages', chapterId],
     queryFn: () => pageApi.getByChapter(chapterId),
+    
     enabled: Boolean(chapterId),
     staleTime: 2 * 60_000,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      console.log('PAGES', data);
+      return Array.isArray(data) && data.length === 0 ? 1500 : false;
+    },
+    refetchIntervalInBackground: true,
   });
 
   const totalPages = pages.length;
@@ -222,11 +230,14 @@ export default function Reader() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentPage, chapter, navigate]);
 
+  const waitingForPages =
+    Boolean(chapter) && !pagesError && pages.length === 0 && (pagesLoading || pagesFetching);
+
   // ⏳ Loading
-  if (chapterLoading || pagesLoading) return <LoadingScreen />;
+  if (chapterLoading || pagesLoading || waitingForPages) return <LoadingScreen />;
 
   // ❌ Error
-  if (chapterError || pagesError || !chapter || pages.length === 0) {
+  if (chapterError || pagesError || !chapter) {
     return (
       <div className="fixed inset-0 bg-black text-white flex items-center justify-center p-6">
         <div className="text-center space-y-4">

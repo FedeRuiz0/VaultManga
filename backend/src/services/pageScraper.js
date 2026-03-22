@@ -23,58 +23,60 @@ class MangaDexPageScraper {
         return [];
       }
 
-      // Build image base URL
-      const imageBase = `${server.baseUrl}/data/${server.chapter.hash}`;
-      
-      console.log(`📊 Server: ${server.baseUrl}, Hash: ${server.chapter.hash}`);
-      
-      return {
-        baseUrl: imageBase,
-        hash: server.chapter.hash,
-        chapterId: chapterId,
-        data: server.chapter.data,
-        dataSaver: server.chapter.dataSaver
-      };
-    } catch (error) {
-      console.error('Page fetch error:', error.response?.data || error.message);
-      return null;
-    }
-  }
-
-  async importPages(chapterId, mangadexChapterId = null) {
-    try {
-      const sourceChapterId = mangadexChapterId || chapterId;
-      const pagesInfo = await this.getChapterPages(sourceChapterId);
-      if (!pagesInfo) {
-        console.log('❌ No pages data available');
-        await query(`
-          UPDATE chapters
-          SET page_fetched = TRUE, updated_at = NOW()
-          WHERE id = $1
-        `, [chapterId]);
-        return 0;
-      }
-
-      console.log(`🔄 Importing pages for chapter ${chapterId}: ${pagesInfo.data.length} pages`);
-
-      let importedCount = 0;
-
-      for (let i = 0; i < pagesInfo.data.length; i++) {
-        try {
-          const pageId = uuidv4();
-          const imageUrl = `${pagesInfo.baseUrl}/${pagesInfo.data[i]}`;
-          
-          await query(`
-            INSERT INTO pages (
-              id, chapter_id, page_number, image_url, image_path, 
-              file_size, is_cached, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-            ON CONFLICT (chapter_id, page_number) DO UPDATE SET
-            image_url = EXCLUDED.image_url,
-            image_path = EXCLUDED.image_path
-              
-          `, [
-            pageId,
+      // build image base URL
+     const imageBase = `${server.baseUrl}/data/${server.chapter.hash}`;
+       
+       console.log(`📊 Server: ${server.baseUrl}, Hash: ${server.chapter.hash}`);
+       console.log('📦 pagesInfo:', server.chapter.data?.length);
+       
+       return {
+         baseUrl: imageBase,
+         hash: server.chapter.hash,
+         chapterId: chapterId,
+         data: server.chapter.data,
+         dataSaver: server.chapter.dataSaver
+       };
+     } catch (error) {
+       console.error('Page fetch error:', error.response?.data || error.message);
+       return null;
+     }
+   }
+ 
+   async importPages(chapterId, mangadexChapterId = null) {
+    console.log('🔥 importPages called:', chapterId);
+     try {
+       const sourceChapterId = mangadexChapterId || chapterId;
+       const pagesInfo = await this.getChapterPages(sourceChapterId);
+       if (!pagesInfo) {
+         console.log('❌ No pages data available');
+         await query(`
+           UPDATE chapters
+          SET pages_fetched = TRUE, updated_at = NOW()
+           WHERE id = $1
+         `, [chapterId]);
+         return 0;
+       }
+ 
+       console.log(`🔄 Importing pages for chapter ${chapterId}: ${pagesInfo.data.length} pages`);
+ 
+       let importedCount = 0;
+ 
+       for (let i = 0; i < pagesInfo.data.length; i++) {
+         try {
+           const pageId = uuidv4();
+           const imageUrl = `${pagesInfo.baseUrl}/${pagesInfo.data[i]}`;
+           
+           await query(`
+             INSERT INTO pages (
+               id, chapter_id, page_number, image_url, image_path, 
+               file_size, is_cached, created_at
+             ) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+             ON CONFLICT (chapter_id, page_number) DO UPDATE SET
+             image_url = EXCLUDED.image_url,
+             image_path = EXCLUDED.image_path
+               
+           `, [
+             pageId,
             chapterId,
             i + 1,
             imageUrl,

@@ -238,14 +238,12 @@ async function syncChapterPages(client, chapterId, chapterUrlOrId, scrapeChapter
 // 📚 MAIN CHAPTER UPSERT
 // ======================
 export async function upsertChapters(mangaId, chapters, options = {}) {
-  const { scrapeChapterPages } = options;
+ 
 
   if (!mangaId) throw new Error('mangaId is required');
   if (!Array.isArray(chapters) || chapters.length === 0) return [];
 
-  if (typeof scrapeChapterPages !== 'function') {
-    throw new Error('options.scrapeChapterPages function is required');
-  }
+
 
   const client = await getPool().connect();
   const results = [];
@@ -257,12 +255,6 @@ export async function upsertChapters(mangaId, chapters, options = {}) {
   
   const chapterRow = await upsertSingleChapter(client, mangaId, chapter);
 
-  /*const pageResult = await syncChapterPages(
-    client,
-    chapterRow.id,
-    chapterRow.url || chapter.url || chapterRow.id,
-    scrapeChapterPages
-  ); */
 
   // ❌ NO SCRAPEAR PÁGINAS ACÁ
 results.push({
@@ -274,8 +266,7 @@ results.push({
 });
 
   console.log(
-    `[sync] chapter ${chapterRow.chapter_number} pages=${pageResult.total} inserted=${pageResult.inserted} skipped=${pageResult.skipped}`
-  );
+  `[sync] chapter ${chapterRow.chapter_number} (metadata only, pages deferred)`);
 }
 
     await client.query('COMMIT');

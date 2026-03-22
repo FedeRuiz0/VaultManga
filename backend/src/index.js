@@ -75,6 +75,15 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // Initialize services and start server
+
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught exception:', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection:', reason);
+});
+
 async function startServer() {
   try {
     // Initialize database
@@ -99,7 +108,7 @@ async function startServer() {
     }).catch(console.error);
 
 // Start server
-    app.listen(PORT, () => {
+    app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 MangaVault API running on port ${PORT}`);
       console.log(`📚 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log('🤖 Auto-scraping habilitado - Nuevo contenido diario!');
@@ -124,4 +133,3 @@ process.on('SIGINT', async () => {
 startServer();
 
 export default app;
-
