@@ -95,14 +95,14 @@ router.get('/:id', async (req, res, next) => {
     const chapter = await queryOne(`
       SELECT c.*, m.title as manga_title
       FROM chapters c
-      JOIN manga m ON m.id = c.manga_id
+      JOIN manga m ON c.manga_id = m.id
       WHERE c.id = $1
     `, [id]);
 
     if (!chapter) {
       return res.status(404).json({ error: 'Chapter not found' });
     }
-
+    
     res.json(chapter);
   } catch (error) {
     console.error('Chapter get error:', error);
@@ -129,8 +129,8 @@ router.post('/', async (req, res, next) => {
 
     const chapter = await queryOne(`
       INSERT INTO chapters (
-        manga_id, chapter_number, volume, title, source_path, page_count, pages_fetched
-      ) VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, FALSE))
+        manga_id, chapper_number, volume, title, source_path, page_count, pages_fetched
+      ) VALUES ($1, $2, $3, $4, $5, $6, COALESCE ($7, FALSE))
       ON CONFLICT (manga_id, chapter_number) 
       DO UPDATE SET source_path = $5, page_count = $6, pages_fetched = COALESCE($7, chapters.pages_fetched)
       RETURNING *

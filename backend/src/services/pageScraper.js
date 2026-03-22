@@ -15,7 +15,7 @@ class MangaDexPageScraper {
       console.log(`📄 Fetching pages for chapter: ${chapterId}`);
       
       // Get available servers
-      const serversRes = await safeGet(`${this.baseURL}/at-home/server/${chapterId}`, {}, { label: `at-home:${chapterId}` });
+      const serversRes = await safeGet.get(`${this.baseURL}/at-home/server/${chapterId}`, {}, { label: `at-home: ${chapterId}`});
       const server = serversRes.data;
       
       if (!server.baseUrl || !server.chapter.hash) {
@@ -49,7 +49,7 @@ class MangaDexPageScraper {
         console.log('❌ No pages data available');
         await query(`
           UPDATE chapters
-          SET pages_fetched = TRUE, updated_at = NOW()
+          SET page_fetched = TRUE, updated_at = NOW()
           WHERE id = $1
         `, [chapterId]);
         return 0;

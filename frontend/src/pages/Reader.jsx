@@ -21,10 +21,10 @@ export default function Reader() {
   const containerRef = useRef(null);
   const pageRefs = useRef([]);
 
-  const settings = {
+  const [settings] = ({
     backgroundColor: '#0a0a0a',
     fitMode: 'width'
-  };
+  });
 
   const { data: chapter, isLoading: chapterLoading, isError: chapterError, error: chapterQueryError } = useQuery({
     queryKey: ['chapter', chapterId],
@@ -57,6 +57,7 @@ export default function Reader() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['libraryOverview'] })
   });
 
+ 
   const handleScroll = useCallback(() => {
     if (!containerRef.current || totalPages === 0) return;
 
@@ -92,6 +93,7 @@ export default function Reader() {
     return () => container.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
 
+  
   useEffect(() => {
     if (!chapter?.manga_id) return undefined;
 
@@ -105,12 +107,12 @@ export default function Reader() {
       endReadingMutation.mutate({
         chapter_id: chapterId,
         end_page: currentPage,
-        duration_seconds: 0
+        duration_seconds: 0,
       });
-    };
+    }
   }, [chapterId, chapter?.manga_id]);
 
-  useEffect(() => {
+    useEffect(() => {
     if (currentPage !== totalPages - 1 || totalPages === 0 || hasMarkedRead.current) return;
 
     hasMarkedRead.current = true;
@@ -133,7 +135,6 @@ export default function Reader() {
           queryFn: () => chapterApi.getById(next.id),
           staleTime: 60_000
         });
-
         queryClient.prefetchQuery({
           queryKey: ['pages', next.id],
           queryFn: () => pageApi.getByChapter(next.id),
@@ -143,9 +144,6 @@ export default function Reader() {
         console.warn('Next chapter prefetch failed', error);
       }
     }, 2000);
-
-    return () => clearTimeout(timer);
-  }, [chapterId, queryClient]);
 
   // Auto-open next chapter when user reaches final page
   useEffect(() => {

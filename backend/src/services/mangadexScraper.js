@@ -11,7 +11,7 @@ class MangaDexScraper {
 
   async searchManga(query, limit = 10) {
     try {
-      const response = await safeGet(`${this.baseURL}/manga`, {
+      const response = await safeGet.get(`${this.baseURL}/manga`, {
         params: {
           title: query,
           limit,
@@ -28,7 +28,7 @@ class MangaDexScraper {
 
   async getMangaDetails(id) {
     try {
-      const response = await safeGet(`${this.baseURL}/manga/${id}`, {
+      const response = await safeGet.get(`${this.baseURL}/manga/${id}`, {
         params: { includes: ['cover_art', 'author', 'artist', 'tag'] }
       });
 
@@ -54,7 +54,7 @@ class MangaDexScraper {
 
   async getPopularManga(limit = 50) {
     try {
-      const response = await safeGet(`${this.baseURL}/manga`, {
+      const response = await safeGet.get(`${this.baseURL}/manga`, {
         params: {
           limit,
           order: { rating: 'desc' },
@@ -72,7 +72,7 @@ class MangaDexScraper {
 async getChapters(mangaDexId) {
     try {
       console.log(`📖 Fetching chapters for manga: ${mangaDexId}`);
-      const response = await safeGet(`${this.baseURL}/chapter`, {
+      const response = await safeGet.get(`${this.baseURL}/chapter`, {
         params: {
           manga: mangaDexId,
           translatedLanguage: ['en'],
