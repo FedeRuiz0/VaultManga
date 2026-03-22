@@ -1,32 +1,62 @@
 import express from 'express';
 import { query, queryOne, queryAll } from '../db/database.js';
 import { mangaCache, getRedis } from '../db/redis.js';
-import path from 'path';
-import fs from 'fs';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 const router = express.Router();
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function ensureChapterPages(chapter) {
+  const { id: chapterId } = chapter;
+
+  if (chapter.pages_fetched) return;
+  if (!chapter.source_path?.startsWith('mangadex://')) return;
+
+  const redis = getRedis();
+  const lockKey = `lock:scrape:chapter:${chapterId}`;
+  const lock = await redis.set(lockKey, '1', { NX: true, EX: 120 });
+
+  if (lock) {
+    try {
+      const { default: pageScraper } = await import('../services/pageScraper.js');
+      const mangadexChapterId = chapter.source_path.replace('mangadex://', '');
+      await pageScraper.importPages(chapterId, mangadexChapterId);
+    } finally {
+      await redis.del(lockKey);
+    }
+    return;
+  }
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await sleep(500);
+    const exists = await queryOne('SELECT 1 FROM pages WHERE chapter_id = $1 LIMIT 1', [chapterId]);
+    if (exists) return;
+  }
+}
 
 // Get pages for a chapter
 router.get('/chapter/:chapterId', async (req, res, next) => {
   try {
     const { chapterId } = req.params;
-    const { quality = 'original' } = req.query;
 
-    // Try cache first
+    const chapter = await queryOne(
+      'SELECT id, manga_id, source_path, pages_fetched FROM chapters WHERE id = $1',
+      [chapterId]
+    );
+
+    if (!chapter) {
+      return res.status(404).json({ error: 'Chapter not found' });
+    }
+
     const cached = await mangaCache.getPages(chapterId);
     if (cached) {
       return res.json(cached);
     }
 
-    const pages = await queryAll(`
-      SELECT 
+    let pages = await queryAll(`
+      SELECT
         p.*,
-        CASE 
+        CASE
           WHEN p.is_cached THEN CONCAT('/storage/cached/', p.chapter_id, '/', p.page_number, '.webp')
           ELSE p.image_path
         END as display_path
@@ -35,8 +65,25 @@ router.get('/chapter/:chapterId', async (req, res, next) => {
       ORDER BY p.page_number ASC
     `, [chapterId]);
 
-    // Cache the result
-    await mangaCache.setPages(chapterId, pages);
+    if (pages.length === 0) {
+      await ensureChapterPages(chapter);
+
+      pages = await queryAll(`
+        SELECT
+          p.*,
+          CASE
+            WHEN p.is_cached THEN CONCAT('/storage/cached/', p.chapter_id, '/', p.page_number, '.webp')
+            ELSE p.image_path
+          END as display_path
+        FROM pages p
+        WHERE p.chapter_id = $1
+        ORDER BY p.page_number ASC
+      `, [chapterId]);
+    }
+
+    if (pages.length > 0) {
+      await mangaCache.setPages(chapterId, pages);
+    }
 
     res.json(pages);
   } catch (error) {

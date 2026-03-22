@@ -1,6 +1,6 @@
-import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { query } from '../db/database.js';
+import { safeGet } from './safeRequest.js';
 import { mangaCache } from '../db/redis.js';
 
 class MangaDexScraper {
@@ -11,7 +11,7 @@ class MangaDexScraper {
 
   async searchManga(query, limit = 10) {
     try {
-      const response = await axios.get(`${this.baseURL}/manga`, {
+      const response = await safeGet(`${this.baseURL}/manga`, {
         params: {
           title: query,
           limit,
@@ -28,7 +28,7 @@ class MangaDexScraper {
 
   async getMangaDetails(id) {
     try {
-      const response = await axios.get(`${this.baseURL}/manga/${id}`, {
+      const response = await safeGet(`${this.baseURL}/manga/${id}`, {
         params: { includes: ['cover_art', 'author', 'artist', 'tag'] }
       });
 
@@ -54,7 +54,7 @@ class MangaDexScraper {
 
   async getPopularManga(limit = 50) {
     try {
-      const response = await axios.get(`${this.baseURL}/manga`, {
+      const response = await safeGet(`${this.baseURL}/manga`, {
         params: {
           limit,
           order: { rating: 'desc' },
@@ -72,7 +72,7 @@ class MangaDexScraper {
 async getChapters(mangaDexId) {
     try {
       console.log(`📖 Fetching chapters for manga: ${mangaDexId}`);
-      const response = await axios.get(`${this.baseURL}/chapter`, {
+      const response = await safeGet(`${this.baseURL}/chapter`, {
         params: {
           manga: mangaDexId,
           translatedLanguage: ['en'],
@@ -114,8 +114,8 @@ async importChapters(mangaId, mangaDexId) {
 
       await query(`
         INSERT INTO chapters (
-          id, manga_id, chapter_number, volume, title, source_path, page_count
-        ) VALUES ($1, $2, $3, $4, $5, $6, 0)
+          id, manga_id, chapter_number, volume, title, source_path, page_count, pages_fetched
+        ) VALUES ($1, $2, $3, $4, $5, $6, 0, FALSE)
         ON CONFLICT (manga_id, chapter_number) DO UPDATE SET
           title = EXCLUDED.title,
           volume = EXCLUDED.volume,

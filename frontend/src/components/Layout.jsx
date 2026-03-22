@@ -33,6 +33,12 @@ export default function Layout({ children }) {
   const { logout, user } = useAuthStore();
   const { toggleTheme, effectiveTheme } = useThemeToggle();
 
+  const isReaderRoute = location.pathname.startsWith('/reader/');
+
+  if (isReaderRoute) {
+    return <div className="min-h-screen bg-black">{children}</div>;
+  }
+
   const handleLogout = () => {
     logout();
     navigate('/login');

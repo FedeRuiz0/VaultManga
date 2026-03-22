@@ -93,8 +93,9 @@ router.get('/:id', async (req, res, next) => {
     const { id } = req.params;
 
     const chapter = await queryOne(`
-      SELECT c.*
+      SELECT c.*, m.title as manga_title
       FROM chapters c
+      JOIN manga m ON m.id = c.manga_id
       WHERE c.id = $1
     `, [id]);
 
@@ -102,48 +103,7 @@ router.get('/:id', async (req, res, next) => {
       return res.status(404).json({ error: 'Chapter not found' });
     }
 
-    // Check if pages exist
-    const pageCountResult = await queryOne(
-      'SELECT COUNT(*) as count FROM pages WHERE chapter_id = $1', 
-      [id]
-    );
-
-    let finalChapter = chapter;
-
-    if (
-      parseInt(pageCountResult.count) === 0 &&
-      chapter.source_path &&
-      chapter.source_path.startsWith('mangadex:')
-    ) {
-      const { default: pageScraper } = await import('../services/pageScraper.js');
-
-      const mangadexChapterId = chapter.source_path.split(':')[1];
-
-      const imported = await pageScraper.importPages(id, mangadexChapterId);
-      console.log(`✅ Imported ${imported} pages for chapter ${id}`);
-
-      // Refresh chapter data
-      finalChapter = await queryOne(`
-        SELECT 
-          c.*,
-          m.title as manga_title
-        FROM chapters c
-        JOIN manga m ON c.manga_id = m.id
-        WHERE c.id = $1
-      `, [id]);
-    }
-
-    // 🔥 TRAER SIEMPRE LAS PÁGINAS
-    const pages = await queryAll(
-      'SELECT * FROM pages WHERE chapter_id = $1 ORDER BY page_number ASC',
-      [id]
-    );
-
-    res.json({
-      ...finalChapter,
-      pages
-    });
-
+    res.json(chapter);
   } catch (error) {
     console.error('Chapter get error:', error);
     next(error);
@@ -169,12 +129,12 @@ router.post('/', async (req, res, next) => {
 
     const chapter = await queryOne(`
       INSERT INTO chapters (
-        manga_id, chapter_number, volume, title, source_path, page_count
-      ) VALUES ($1, $2, $3, $4, $5, $6)
+        manga_id, chapter_number, volume, title, source_path, page_count, pages_fetched
+      ) VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, FALSE))
       ON CONFLICT (manga_id, chapter_number) 
-      DO UPDATE SET source_path = $5, page_count = $6
+      DO UPDATE SET source_path = $5, page_count = $6, pages_fetched = COALESCE($7, chapters.pages_fetched)
       RETURNING *
-    `, [manga_id, chapter_number, volume, title, source_path, page_count]);
+    `, [manga_id, chapter_number, volume, title, source_path, page_count, req.body.pages_fetched]);
 
     // Invalidate chapters cache
     await mangaCache.invalidateChapters(manga_id);
