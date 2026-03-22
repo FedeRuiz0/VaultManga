@@ -1,6 +1,6 @@
-import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 import { query, queryOne } from '../db/database.js';
+import { safeGet } from './safeRequest.js';
 import { mangaCache } from '../db/redis.js';
 
 class MangaDexPageScraper {
@@ -15,7 +15,7 @@ class MangaDexPageScraper {
       console.log(`📄 Fetching pages for chapter: ${chapterId}`);
       
       // Get available servers
-      const serversRes = await axios.get(`${this.baseURL}/at-home/server/${chapterId}`);
+      const serversRes = await safeGet.get(`${this.baseURL}/at-home/server/${chapterId}`, {}, { label: `at-home: ${chapterId}`});
       const server = serversRes.data;
       
       if (!server.baseUrl || !server.chapter.hash) {
@@ -47,6 +47,11 @@ class MangaDexPageScraper {
       const pagesInfo = await this.getChapterPages(sourceChapterId);
       if (!pagesInfo) {
         console.log('❌ No pages data available');
+        await query(`
+          UPDATE chapters
+          SET page_fetched = TRUE, updated_at = NOW()
+          WHERE id = $1
+        `, [chapterId]);
         return 0;
       }
 
@@ -92,7 +97,7 @@ class MangaDexPageScraper {
       // Update chapter page count
       await query(`
         UPDATE chapters 
-        SET page_count = $1, updated_at = NOW()
+        SET page_count = $1, pages_fetched = TRUE, updated_at = NOW()
         WHERE id = $2
       `, [pagesInfo.data.length, chapterId]);
 

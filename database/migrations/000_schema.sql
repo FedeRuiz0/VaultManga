@@ -53,6 +53,7 @@ CREATE TABLE chapters (
     title VARCHAR(500),
     source_path TEXT NOT NULL,
     page_count INTEGER DEFAULT 0,
+    pages_fetched BOOLEAN DEFAULT FALSE,
     is_read BOOLEAN DEFAULT FALSE,
     is_downloaded BOOLEAN DEFAULT FALSE,
     read_progress INTEGER DEFAULT 0,

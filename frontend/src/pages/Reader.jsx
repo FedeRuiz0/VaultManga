@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -12,79 +12,59 @@ export default function Reader() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const [showSettings, setShowSettings] = useState(false);
   const [currentPage, setCurrentPage] = useState(0);
   const [isLoadingPage, setIsLoadingPage] = useState(true);
+  const [isNavigatingNext, setIsNavigatingNext] = useState(false);
 
   const hasMarkedRead = useRef(false);
+  const hasAutoNavigated = useRef(false);
   const containerRef = useRef(null);
   const pageRefs = useRef([]);
 
-  const [settings] = useState({
+  const [settings] = ({
     backgroundColor: '#0a0a0a',
-    fitMode: 'width',
+    fitMode: 'width'
   });
 
-  // ✅ FIX: useQuery correcto
-  const {
-    data: chapter,
-    isLoading: chapterLoading,
-    isError: chapterError,
-    error: chapterQueryError,
-  } = useQuery({
+  const { data: chapter, isLoading: chapterLoading, isError: chapterError, error: chapterQueryError } = useQuery({
     queryKey: ['chapter', chapterId],
     queryFn: () => chapterApi.getById(chapterId),
     enabled: Boolean(chapterId),
+    staleTime: 60_000
   });
 
-  // ✅ Detectar páginas dentro del chapter
-  const chapterPages = useMemo(() => {
-    if (Array.isArray(chapter?.pages)) return chapter.pages;
-    if (Array.isArray(chapter?.data?.pages)) return chapter.data.pages;
-    return null;
-  }, [chapter]);
-
   const {
-    data: fetchedPages,
+    data: pages = [],
     isLoading: pagesLoading,
     isError: pagesError,
-    error: pagesQueryError,
+    error: pagesQueryError
   } = useQuery({
     queryKey: ['pages', chapterId],
     queryFn: () => pageApi.getByChapter(chapterId),
-    enabled: Boolean(chapterId) && !chapterPages,
+    enabled: Boolean(chapterId),
+    staleTime: 2 * 60_000
   });
 
-  const pages = chapterPages ?? fetchedPages ?? [];
   const totalPages = pages.length;
 
-  // 📚 mutations
   const startReadingMutation = useMutation({
     mutationFn: (data) => libraryApi.startReading(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['libraryOverview'] })
   });
 
   const endReadingMutation = useMutation({
     mutationFn: (data) => libraryApi.endReading(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
-    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['libraryOverview'] })
   });
 
-  useEffect(() => {
-    hasMarkedRead.current = false;
-  }, [chapterId]);
-
-  // 📜 scroll tracking
+ 
   const handleScroll = useCallback(() => {
     if (!containerRef.current || totalPages === 0) return;
 
     const scrollTop = containerRef.current.scrollTop;
     const viewportHeight = containerRef.current.clientHeight;
 
-    for (let i = 0; i < pageRefs.current.length; i++) {
+    for (let i = 0; i < pageRefs.current.length; i += 1) {
       const pageEl = pageRefs.current[i];
       if (!pageEl) continue;
 
@@ -99,33 +79,71 @@ export default function Reader() {
   }, [totalPages]);
 
   useEffect(() => {
+    hasMarkedRead.current = false;
+    hasAutoNavigated.current = false;
+    setCurrentPage(0);
+    setIsLoadingPage(true);
+  }, [chapterId]);
+
+  useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    container.addEventListener('scroll', handleScroll);
+    container.addEventListener('scroll', handleScroll, { passive: true });
     return () => container.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
 
-  // ▶ start / end reading
+  
   useEffect(() => {
-    if (chapter?.manga_id) {
-      startReadingMutation.mutate({
-        manga_id: chapter.manga_id,
-        chapter_id: chapterId,
-        page_number: 0,
-      });
-    }
+    if (!chapter?.manga_id) return undefined;
+
+    startReadingMutation.mutate({
+      manga_id: chapter.manga_id,
+      chapter_id: chapterId,
+      page_number: 0
+    });
 
     return () => {
-      if (chapter?.manga_id) {
-        endReadingMutation.mutate({
-          chapter_id: chapterId,
-          end_page: currentPage,
-          duration_seconds: 0,
-        });
-      }
-    };
+      endReadingMutation.mutate({
+        chapter_id: chapterId,
+        end_page: currentPage,
+        duration_seconds: 0,
+      });
+    }
   }, [chapterId, chapter?.manga_id]);
+
+    useEffect(() => {
+    if (currentPage !== totalPages - 1 || totalPages === 0 || hasMarkedRead.current) return;
+
+    hasMarkedRead.current = true;
+    chapterApi.markRead(chapterId).catch(() => {
+      hasMarkedRead.current = false;
+    });
+  }, [currentPage, totalPages, chapterId]);
+
+  // Prefetch next chapter (data + pages) after opening current chapter
+  useEffect(() => {
+    if (!chapterId) return undefined;
+
+    const timer = setTimeout(async () => {
+      try {
+        const next = await chapterApi.getNext(chapterId);
+        if (!next?.id) return;
+
+        queryClient.prefetchQuery({
+          queryKey: ['chapter', next.id],
+          queryFn: () => chapterApi.getById(next.id),
+          staleTime: 60_000
+        });
+        queryClient.prefetchQuery({
+          queryKey: ['pages', next.id],
+          queryFn: () => pageApi.getByChapter(next.id),
+          staleTime: 2 * 60_000
+        });
+      } catch (error) {
+        console.warn('Next chapter prefetch failed', error);
+      }
+    }, 2000);
 
   // ✅ marcar leído
   useEffect(() => {
