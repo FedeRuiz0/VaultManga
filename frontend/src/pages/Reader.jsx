@@ -21,43 +21,61 @@ export default function Reader() {
   const containerRef = useRef(null);
   const pageRefs = useRef([]);
 
-  const [settings] = ({
+  const settings = {
     backgroundColor: '#0a0a0a',
-    fitMode: 'width'
-  });
+    fitMode: 'width',
+  };
 
-  const { data: chapter, isLoading: chapterLoading, isError: chapterError, error: chapterQueryError } = useQuery({
+  // 📘 Chapter
+  const {
+    data: chapter,
+    isLoading: chapterLoading,
+    isError: chapterError,
+    error: chapterQueryError,
+  } = useQuery({
     queryKey: ['chapter', chapterId],
     queryFn: () => chapterApi.getById(chapterId),
     enabled: Boolean(chapterId),
-    staleTime: 60_000
+    staleTime: 60_000,
   });
 
+  // 📄 Pages
   const {
     data: pages = [],
     isLoading: pagesLoading,
     isError: pagesError,
-    error: pagesQueryError
+    error: pagesQueryError,
   } = useQuery({
     queryKey: ['pages', chapterId],
     queryFn: () => pageApi.getByChapter(chapterId),
     enabled: Boolean(chapterId),
-    staleTime: 2 * 60_000
+    staleTime: 2 * 60_000,
   });
 
   const totalPages = pages.length;
 
+  // 📚 Mutations
   const startReadingMutation = useMutation({
     mutationFn: (data) => libraryApi.startReading(data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['libraryOverview'] })
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['libraryOverview'] }),
   });
 
   const endReadingMutation = useMutation({
     mutationFn: (data) => libraryApi.endReading(data),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['libraryOverview'] })
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ['libraryOverview'] }),
   });
 
- 
+  // 🔄 Reset when chapter changes
+  useEffect(() => {
+    hasMarkedRead.current = false;
+    hasAutoNavigated.current = false;
+    setCurrentPage(0);
+    setIsLoadingPage(true);
+  }, [chapterId]);
+
+  // 📜 Scroll tracking
   const handleScroll = useCallback(() => {
     if (!containerRef.current || totalPages === 0) return;
 
@@ -79,13 +97,6 @@ export default function Reader() {
   }, [totalPages]);
 
   useEffect(() => {
-    hasMarkedRead.current = false;
-    hasAutoNavigated.current = false;
-    setCurrentPage(0);
-    setIsLoadingPage(true);
-  }, [chapterId]);
-
-  useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
@@ -93,14 +104,14 @@ export default function Reader() {
     return () => container.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
 
-  
+  // ▶ Start / End reading
   useEffect(() => {
-    if (!chapter?.manga_id) return undefined;
+    if (!chapter?.manga_id) return;
 
     startReadingMutation.mutate({
       manga_id: chapter.manga_id,
       chapter_id: chapterId,
-      page_number: 0
+      page_number: 0,
     });
 
     return () => {
@@ -109,21 +120,28 @@ export default function Reader() {
         end_page: currentPage,
         duration_seconds: 0,
       });
-    }
+    };
   }, [chapterId, chapter?.manga_id]);
 
-    useEffect(() => {
-    if (currentPage !== totalPages - 1 || totalPages === 0 || hasMarkedRead.current) return;
+  // ✅ Mark as read
+  useEffect(() => {
+    if (
+      currentPage !== totalPages - 1 ||
+      totalPages === 0 ||
+      hasMarkedRead.current
+    )
+      return;
 
     hasMarkedRead.current = true;
+
     chapterApi.markRead(chapterId).catch(() => {
       hasMarkedRead.current = false;
     });
   }, [currentPage, totalPages, chapterId]);
 
-  // Prefetch next chapter (data + pages) after opening current chapter
+  // 🚀 Prefetch next chapter
   useEffect(() => {
-    if (!chapterId) return undefined;
+    if (!chapterId) return;
 
     const timer = setTimeout(async () => {
       try {
@@ -133,23 +151,31 @@ export default function Reader() {
         queryClient.prefetchQuery({
           queryKey: ['chapter', next.id],
           queryFn: () => chapterApi.getById(next.id),
-          staleTime: 60_000
+          staleTime: 60_000,
         });
+
         queryClient.prefetchQuery({
           queryKey: ['pages', next.id],
           queryFn: () => pageApi.getByChapter(next.id),
-          staleTime: 2 * 60_000
+          staleTime: 2 * 60_000,
         });
       } catch (error) {
         console.warn('Next chapter prefetch failed', error);
       }
     }, 2000);
 
-  // Auto-open next chapter when user reaches final page
+    return () => clearTimeout(timer);
+  }, [chapterId, queryClient]);
+
+  // ➡ Auto-next chapter
   useEffect(() => {
-    if (totalPages === 0 || currentPage !== totalPages - 1 || isNavigatingNext || hasAutoNavigated.current) {
+    if (
+      totalPages === 0 ||
+      currentPage !== totalPages - 1 ||
+      isNavigatingNext ||
+      hasAutoNavigated.current
+    )
       return;
-    }
 
     hasAutoNavigated.current = true;
 
@@ -157,6 +183,7 @@ export default function Reader() {
       try {
         const next = await chapterApi.getNext(chapterId);
         if (!next?.id) return;
+
         setIsNavigatingNext(true);
         navigate(`/reader/${next.id}`);
       } catch (error) {
@@ -169,14 +196,21 @@ export default function Reader() {
     return () => clearTimeout(timer);
   }, [chapterId, currentPage, totalPages, navigate, isNavigatingNext]);
 
+  // ⌨ Keyboard navigation
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
-        pageRefs.current[currentPage + 1]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (['ArrowRight', 'ArrowDown', ' '].includes(e.key)) {
+        pageRefs.current[currentPage + 1]?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
       }
 
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-        pageRefs.current[currentPage - 1]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (['ArrowLeft', 'ArrowUp'].includes(e.key)) {
+        pageRefs.current[currentPage - 1]?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'start',
+        });
       }
 
       if (e.key === 'Escape' && chapter?.manga_id) {
@@ -188,17 +222,24 @@ export default function Reader() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentPage, chapter, navigate]);
 
+  // ⏳ Loading
   if (chapterLoading || pagesLoading) return <LoadingScreen />;
 
+  // ❌ Error
   if (chapterError || pagesError || !chapter || pages.length === 0) {
     return (
       <div className="fixed inset-0 bg-black text-white flex items-center justify-center p-6">
         <div className="text-center space-y-4">
           <h2 className="text-xl">Unable to load chapter</h2>
           <p className="text-gray-400">
-            {chapterQueryError?.message || pagesQueryError?.message || 'Chapter not found'}
+            {chapterQueryError?.message ||
+              pagesQueryError?.message ||
+              'Chapter not found'}
           </p>
-          <button onClick={() => navigate(-1)} className="px-4 py-2 bg-blue-600 rounded-lg">
+          <button
+            onClick={() => navigate(-1)}
+            className="px-4 py-2 bg-blue-600 rounded-lg"
+          >
             Go Back
           </button>
         </div>
@@ -206,6 +247,7 @@ export default function Reader() {
     );
   }
 
+  // 🎨 Render
   return (
     <div className="fixed inset-0 bg-black">
       <div
@@ -227,7 +269,10 @@ export default function Reader() {
                 decoding="async"
                 src={page.display_path || page.image_path}
                 alt={`Page ${index + 1}`}
-                className={clsx('max-w-full h-auto', settings.fitMode === 'width' && 'w-full')}
+                className={clsx(
+                  'max-w-full h-auto',
+                  settings.fitMode === 'width' && 'w-full'
+                )}
                 onLoad={() => index === 0 && setIsLoadingPage(false)}
               />
             </div>
@@ -236,7 +281,9 @@ export default function Reader() {
       </div>
 
       <AnimatePresence>
-        {(startReadingMutation.isPending || endReadingMutation.isPending || isNavigatingNext) && (
+        {(startReadingMutation.isPending ||
+          endReadingMutation.isPending ||
+          isNavigatingNext) && (
           <motion.div className="absolute top-4 right-4 text-xs bg-black/80 px-3 py-2 rounded text-white">
             {isNavigatingNext ? 'Opening next chapter...' : 'Syncing...'}
           </motion.div>
