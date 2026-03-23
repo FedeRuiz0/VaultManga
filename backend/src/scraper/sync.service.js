@@ -9,6 +9,22 @@ function normalizeChapterNumber(value) {
   return String(value ?? '').trim();
 }
 
+function extractMangaDexId(sourcePath) {
+  if (!sourcePath) return null;
+  const match = String(sourcePath).match(/[0-9a-f-]{36}/i);
+  return match ? match[0] : null;
+}
+
+function normalizeMangaDexSourcePath(sourcePath) {
+  if (!sourcePath) return sourcePath;
+  if (!String(sourcePath).includes('mangadex')) return sourcePath;
+
+  const chapterId = extractMangaDexId(sourcePath);
+  if (!chapterId) return sourcePath;
+
+  return `mangadex://${chapterId}`;
+}
+
 // ======================
 // 📚 MANGA UPSERT
 // ======================
@@ -17,6 +33,8 @@ export async function upsertManga(scrapedManga) {
     throw new Error('scrapedManga.source_path is required');
   }
 
+  const normalizedSourcePath = normalizeMangaDexSourcePath(scrapedManga.source_path);
+
   const client = await getPool().connect();
 
   try {
@@ -24,7 +42,7 @@ export async function upsertManga(scrapedManga) {
 
     const existing = await client.query(
       'SELECT id FROM manga WHERE source_path = $1 LIMIT 1',
-      [scrapedManga.source_path]
+      [normalizedSourcePath]
     );
 
     let mangaId;
@@ -64,7 +82,7 @@ export async function upsertManga(scrapedManga) {
           scrapedManga.title || 'Unknown title',
           scrapedManga.description || '',
           scrapedManga.cover_image || null,
-          scrapedManga.source_path,
+          normalizedSourcePath,
           scrapedManga.author || null,
           scrapedManga.status || 'unknown'
         ]
@@ -108,26 +126,15 @@ export async function getAllManga() {
 // ======================
 async function upsertSingleChapter(client, mangaId, chapter) {
   const chapterNumber = normalizeChapterNumber(chapter.chapter_number);
+  const normalizedSourcePath = normalizeMangaDexSourcePath(
+    chapter.source_path || chapter.url || ''
+  );
 
   if (!chapterNumber) {
     throw new Error('chapter_number is required');
   }
 
-  const exists = await client.query(
-    `SELECT id FROM chapters 
-     WHERE manga_id = $1 AND chapter_number = $2`,
-    [mangaId, chapterNumber]
-  );
-
-  if (exists.rows.length > 0) {
-    return {
-      id: exists.rows[0].id,
-      chapter_number: chapterNumber,
-      url: chapter.url,
-      alreadyExists: true
-    };
-  }
-
+  
   const result = await client.query(
     `INSERT INTO chapters (id, manga_id, chapter_number, title, source_path, page_count)
      VALUES ($1, $2, $3, $4, $5, 0)
@@ -142,7 +149,7 @@ async function upsertSingleChapter(client, mangaId, chapter) {
       mangaId,
       chapterNumber,
       chapter.title || `Chapter ${chapterNumber}`,
-      chapter.source_path || chapter.url || ''
+      normalizedSourcePath
     ]
   );
 

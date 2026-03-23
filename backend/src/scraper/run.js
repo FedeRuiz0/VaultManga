@@ -21,7 +21,7 @@ async function discoverNewManga() {
     console.log(`[bot] discovered candidates=${popular.length}`);
 
     for (const manga of popular) {
-      const sourcePath = `mangadex:${manga.id}`;
+      const sourcePath = `mangadex://${manga.id}`;
 
       try {
         const exists = await mangaExistsBySource(sourcePath);

@@ -114,7 +114,7 @@ export async function scrapeMangaDetails(mangaUrl) {
       title,
       description,
       cover_image: coverImage,
-      source_path: `mangadex:${mangaId}`,
+      source_path: `mangadex://${mangaId}`,
       author: authorRel?.attributes?.name || artistRel?.attributes?.name || null,
       status: attrs.status || 'unknown'
     };
@@ -195,7 +195,7 @@ export async function scrapeChapterList(mangaUrl) {
           chapters.push({
             chapter_number: chapterNumber,
             title: item.attributes?.title || `Chapter ${chapterNumber}`,
-            source_path: `mangadex:${item.id}`,
+            source_path: `mangadex://${item.id}`,
             url: item.id,
             language
           });

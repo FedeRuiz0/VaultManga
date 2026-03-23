@@ -79,7 +79,7 @@ export async function scrapeMangaDetails(mangaUrl) {
       title,
       description,
       cover_image,
-      source_path: `mangadex:${data.id}`,
+      source_path: `mangadex://${data.id}`,
       author: null,
       status: attributes.status,
     };
@@ -112,7 +112,7 @@ export async function scrapeChapterList(mangaUrl) {
       chapter_number: ch.attributes.chapter || '0',
       title: ch.attributes.title || `Chapter ${ch.attributes.chapter}`,
       url: ch.id, // usamos ID como referencia
-      source_path: `mangadex:${ch.id}`
+      source_path: `mangadex://${ch.id}`
     }));
 
     console.log(`📚 Found ${chapters.length} chapters`);

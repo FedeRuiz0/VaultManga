@@ -4,6 +4,13 @@ import { mangaCache } from '../db/redis.js';
 
 const router = express.Router();
 
+function extractMangaDexId(sourcePath) {
+  if (!sourcePath) return null;
+  const match = String(sourcePath).match(/[0-9a-f-]{36}/i);
+  return match ? match[0] : null;
+}
+
+
 // Get chapters for a manga
 router.get('/manga/:mangaId', async (req, res, next) => {
   try {
@@ -27,9 +34,12 @@ router.get('/manga/:mangaId', async (req, res, next) => {
       console.log(`⚠️ No chapters found for manga ${mangaId}. Checking for auto-import...`);
       
       // Get manga source
-      const manga = await queryOne('SELECT source_path FROM manga WHERE id = $1', [mangaId]);
-      if (manga && manga.source_path && manga.source_path.startsWith('mangadex://')) {
-        const mangaDexId = manga.source_path.replace('mangadex://', '');
+      if (manga?.source_path?.includes('mangadex')) {
+        const mangaDexId = extractMangaDexId(manga.source_path);
+        if (!mangaDexId) {
+          console.warn(`⚠️ Invalid manga source_path for auto-import: ${manga.source_path}`);
+          return res.json(chapters);
+        }
         console.log(`🚀 Auto-importing chapters from MangaDex ID: ${mangaDexId}`);
         
         const { default: mangaDexScraper } = await import('../services/mangadexScraper.js');
