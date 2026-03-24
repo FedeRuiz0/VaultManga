@@ -47,7 +47,7 @@ async function upsertManga(details) {
       SET
         title = $2,
         description = $3,
-        cover_image = $4,
+        cover_image = COALESCE($4, cover_image)
         genre = $5,
         status = COALESCE($6, status),
         year = COALESCE($7, year),

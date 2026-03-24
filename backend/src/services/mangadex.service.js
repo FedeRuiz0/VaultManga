@@ -12,6 +12,25 @@ const client = axios.create({
   },
 });
 
+function getRelationshipId(entity, type) {
+  const rel = (entity?.relationships || []).find((r) => r.type === type);
+  return rel?.id || null;
+}
+
+function buildCoverUrlFromIncludes(manga, includes = []) {
+  const coverRelationshipId = getRelationshipId(manga, 'cover_art');
+  if (!coverRelationshipId) return null;
+
+  const cover = includes.find(
+    (item) => item.type === 'cover_art' && item.id === coverRelationshipId
+  );
+
+  const fileName = cover?.attributes?.fileName;
+  if (!fileName) return null;
+
+  return `https://uploads.mangadex.org/covers/${manga.id}/${fileName}.512.jpg`;
+}
+
 function pickLocalizedText(data, preferred = 'en', fallback = '') {
   if (!data || typeof data !== 'object') return fallback;
   if (data[preferred]) return data[preferred];
@@ -59,6 +78,7 @@ async function searchMangaByTitle(title, limit = 10) {
     url: '/manga',
     params: {
       title,
+      cover: buildCoverUrlFromIncludes(item, data.includes || []),
       limit,
       includes: ['cover_art'],
     },
@@ -147,7 +167,7 @@ async function fetchChapters(mangaId) {
         params: {
           limit: FEED_LIMIT,
           offset,
-          translatedLanguage: ['en', 'es', 'pt-br'],
+          translatedLanguage: ['es', 'en', 'pt-br'],
           'order[chapter]': 'asc',
         },
       },
@@ -161,13 +181,15 @@ async function fetchChapters(mangaId) {
       const chapterNumber = String(item?.attributes?.chapter || '').trim();
       if (!chapterNumber) continue;
 
+      const chapterId = item.id;
+
       chapters.push({
-        chapters,
+        chapterId,
         chapterNumber,
-  title: item.attributes?.title || `Chapter ${chapterNumber}`,
-  source_path: `mangadex://${chapterId}`,
-  language: item.attributes?.translatedLanguage || 'unknown',
-});
+        title: item.attributes?.title || `Chapter ${chapterNumber}`,
+        source_path: `mangadex://${chapterId}`,
+        language: item.attributes?.translatedLanguage || 'unknown',
+      });
     }
 
     offset += FEED_LIMIT;

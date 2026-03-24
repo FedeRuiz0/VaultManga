@@ -3,6 +3,32 @@ import { query } from '../db/database.js';
 import { safeGet } from './safeRequest.js';
 import { mangaCache } from '../db/redis.js';
 
+function pickLocalizedText(data, preferred = 'en', fallback = '') {
+  if (!data || typeof data !== 'object') return fallback;
+  if (data[preferred]) return data[preferred];
+  const first = Object.values(data).find(Boolean);
+  return first || fallback;
+}
+
+function getRelationshipId(entity, type) {
+  const rel = (entity?.relationships || []).find((r) => r.type === type);
+  return rel?.id || null;
+}
+
+function buildCoverUrlFromIncludes(manga, includes = []) {
+  const coverRelationshipId = getRelationshipId(manga, 'cover_art');
+  if (!coverRelationshipId) return null;
+
+  const cover = includes.find(
+    (item) => item.type === 'cover_art' && item.id === coverRelationshipId
+  );
+
+  const fileName = cover?.attributes?.fileName;
+  if (!fileName) return null;
+
+  return `https://uploads.mangadex.org/covers/${manga.id}/${fileName}.512.jpg`;
+}
+
 class MangaDexScraper {
   constructor() {
     this.baseURL = 'https://api.mangadex.org';
@@ -28,40 +54,49 @@ class MangaDexScraper {
   }
 
   async getMangaDetails(id) {
-    try {
-      const response = await safeGet.get(`${this.baseURL}/manga/${id}`, {
-        params: { includes: ['cover_art', 'author', 'artist', 'tag'] },
-      });
+  try {
+    const response = await safeGet.get(`${this.baseURL}/manga/${id}`, {
+      params: {
+        includes: ['cover_art', 'author', 'artist'],
+      },
+    });
 
-      const manga = response.data?.data;
-      const cover = response.data?.includes?.find((i) => i.type === 'cover_art') || {};
+    const manga = response.data?.data;
+    const includes = response.data?.includes || [];
 
-      if (!manga) return null;
+    if (!manga) return null;
 
-      return {
-        id: manga.id,
-        title:
-          manga.attributes?.title?.en ||
-          Object.values(manga.attributes?.title || {})[0] ||
-          'Unknown',
-        description: manga.attributes?.description?.en || '',
-        cover_image: cover.attributes?.fileName
-          ? `https://uploads.mangadex.org/covers/${manga.id}/${cover.attributes.fileName}.512.jpg`
-          : null,
-        genre:
-          manga.attributes?.tags
-            ?.map((t) => t.attributes?.name?.en)
-            .filter(Boolean) || [],
-        status: manga.attributes?.status || 'ongoing',
-        year: manga.attributes?.year || null,
-        author: manga.attributes?.authors?.[0]?.attributes?.name || '',
-        artist: manga.attributes?.artists?.[0]?.attributes?.name || '',
-      };
-    } catch (error) {
-      console.error('MangaDex details error:', error.response?.data || error.message);
-      return null;
-    }
+    const authorRel = (manga.relationships || []).find((r) => r.type === 'author');
+    const artistRel = (manga.relationships || []).find((r) => r.type === 'artist');
+
+    const author = includes.find((i) => i.type === 'author' && i.id === authorRel?.id);
+    const artist = includes.find((i) => i.type === 'artist' && i.id === artistRel?.id);
+
+    return {
+      id: manga.id,
+      title:
+        manga.attributes?.title?.en ||
+        Object.values(manga.attributes?.title || {})[0] ||
+        'Unknown',
+      description:
+        manga.attributes?.description?.en ||
+        Object.values(manga.attributes?.description || {})[0] ||
+        '',
+      cover_image: buildCoverUrlFromIncludes(manga, includes),
+      genre:
+        manga.attributes?.tags
+          ?.map((t) => t.attributes?.name?.en)
+          .filter(Boolean) || [],
+      status: manga.attributes?.status || 'ongoing',
+      year: manga.attributes?.year || null,
+      author: author?.attributes?.name || '',
+      artist: artist?.attributes?.name || '',
+    };
+  } catch (error) {
+    console.error('MangaDex details error:', error.response?.data || error.message);
+    return null;
   }
+}
 
   async getPopularManga(limit = 50) {
     try {
@@ -123,60 +158,153 @@ class MangaDexScraper {
   }
 
   async importChapters(mangaId, mangaDexId) {
-    try {
-      let chapters = await this.getChapters(mangaDexId);
+  try {
+    const chapters = await this.getChapters(mangaDexId);
 
-      chapters = chapters
-        .filter((c) => c.attributes?.chapter)
-        .sort((a, b) => {
-          const aNum = parseFloat(a.attributes.chapter) || 0;
-          const bNum = parseFloat(b.attributes.chapter) || 0;
-          return aNum - bNum;
-        });
+    // 1) normalizar
+    const normalized = chapters
+      .map((c) => {
+        const attrs = c.attributes || {};
+        let raw = String(attrs.chapter || '').trim();
 
-      let importedCount = 0;
+        if (!raw) return null;
 
-      console.log(`📚 Importing ${chapters.length} chapters for manga ${mangaId}`);
+        raw = raw.replace(',', '.');
 
-      for (const chapter of chapters) {
-        const attrs = chapter.attributes || {};
-        const mangadexChapterId = chapter.id;
+        return {
+          id: c.id,
+          chapterNumber: raw, // string exacto
+          chapterNumberSort: parseFloat(raw) || 0, // solo para ordenar
+          volume: attrs.volume || null,
+          title: attrs.title || `Chapter ${raw}`,
+          source_path: `mangadex://${c.id}`,
+          language: attrs.translatedLanguage || 'unknown',
+        };
+      })
+      .filter(Boolean);
 
-        await query(
-          `
-          INSERT INTO chapters (
-            id, manga_id, chapter_number, volume, title, source_path, page_count, pages_fetched
-          ) VALUES ($1, $2, $3, $4, $5, $6, 0, FALSE)
-          ON CONFLICT (manga_id, chapter_number) DO UPDATE SET
-            title = EXCLUDED.title,
-            volume = EXCLUDED.volume,
-            source_path = EXCLUDED.source_path,
-            updated_at = NOW()
-          `,
-          [
-            uuidv4(),
-            mangaId,
-            attrs.chapter || '0',
-            attrs.volume || null,
-            attrs.title || `Chapter ${attrs.chapter || '?'}`,
-            `mangadex://${mangadexChapterId}`,
-          ]
-        );
-
-        importedCount += 1;
-        await new Promise((resolve) => setTimeout(resolve, 250));
-      }
-
-      await mangaCache.invalidateChapters(mangaId);
-      await mangaCache.invalidateManga(mangaId);
-
-      console.log(`✅ Chapters imported: ${importedCount} for ${mangaId}`);
-      return importedCount;
-    } catch (error) {
-      console.error('Chapter import failed:', error);
-      throw error;
+    if (normalized.length === 0) {
+      console.log(`📚 No chapters to import for manga ${mangaId}`);
+      return 0;
     }
+
+    // 2) deduplicar dentro del lote
+    const uniqueMap = new Map();
+
+    for (const ch of normalized) {
+      const key = ch.chapterNumber;
+
+      if (!uniqueMap.has(key)) {
+        uniqueMap.set(key, ch);
+      } else {
+        const existing = uniqueMap.get(key);
+
+        const priority = (lang) =>
+          lang === 'es' ? 3 : lang === 'en' ? 2 : 1;
+
+        if (priority(ch.language) > priority(existing.language)) {
+          uniqueMap.set(key, ch);
+        }
+      }
+    }
+
+    const cleanChapters = Array.from(uniqueMap.values()).sort(
+      (a, b) => a.chapterNumberSort - b.chapterNumberSort
+    );
+
+    console.log('DEBUG duplicates:', normalized.length, '->', cleanChapters.length);
+
+    // 3) filtrar contra DB existente
+    const existingRows = await query(
+      `SELECT chapter_number FROM chapters WHERE manga_id = $1`,
+      [mangaId]
+    );
+
+    const existingSet = new Set(
+      existingRows.rows.map((r) => String(r.chapter_number))
+    );
+
+    const finalChapters = cleanChapters.filter(
+      (ch) => !existingSet.has(String(ch.chapterNumber))
+    );
+
+    console.log(`📚 Final import: ${cleanChapters.length} -> ${finalChapters.length}`);
+
+    if (finalChapters.length === 0) {
+      console.log('⚠️ No new chapters to insert');
+      return 0;
+    }
+
+    // 4) armar bulk insert con FINAL chapters
+    const values = [];
+    const params = [];
+    let paramIndex = 1;
+
+    for (const chapter of finalChapters) {
+      values.push(
+        `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, $${paramIndex + 4}, $${paramIndex + 5}, 0, FALSE, $${paramIndex + 6})`
+      );
+
+      params.push(
+        uuidv4(),
+        mangaId,
+        chapter.chapterNumber,
+        chapter.volume,
+        chapter.title,
+        chapter.source_path,
+        chapter.language
+      );
+
+      paramIndex += 7;
+    }
+
+    console.log(`📚 Bulk importing ${finalChapters.length} chapters for manga ${mangaId}`);
+
+    await query('BEGIN');
+
+    await query(
+      `
+      INSERT INTO chapters (
+        id,
+        manga_id,
+        chapter_number,
+        volume,
+        title,
+        source_path,
+        page_count,
+        pages_fetched,
+        language
+      )
+      VALUES ${values.join(', ')}
+      ON CONFLICT (manga_id, chapter_number)
+      DO UPDATE SET
+        volume = EXCLUDED.volume,
+        title = EXCLUDED.title,
+        source_path = EXCLUDED.source_path,
+        language = EXCLUDED.language,
+        updated_at = CURRENT_TIMESTAMP
+      `,
+      params
+    );
+
+    await query('COMMIT');
+
+    await mangaCache.invalidateChapters(mangaId);
+    await mangaCache.invalidateManga(mangaId);
+
+    console.log(`✅ Chapters bulk imported: ${finalChapters.length} for ${mangaId}`);
+    return finalChapters.length;
+  } catch (error) {
+    try {
+      await query('ROLLBACK');
+    } catch (_) {
+      // no-op
+    }
+
+    console.error('Chapter bulk import failed:', error);
+    throw error;
   }
+}
 
   async importManga(mangaData) {
     try {
