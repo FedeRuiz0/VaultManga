@@ -81,6 +81,20 @@ export const mangaApi = {
   async toggleFavorite(id) {
     return request(`/manga/${id}/favorite`, { method: 'PATCH' });
   },
+
+  async searchManga(query, limit = 10) {
+    const params = new URLSearchParams({ q: query, limit: String(limit) });
+    const result = await request(`/manga/search?${params}`);
+    return asArray(result);
+  },
+
+  async importMangadex(mangadexId) {
+    const result = await request('/manga/import', {
+      method: 'POST',
+      body: JSON.stringify({ mangadexId })
+    });
+    return asObject(result);
+  },
 };
 
 /** Chapter Endpoints */

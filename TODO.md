@@ -1,12 +1,14 @@
-# TODO: Fix MangaDex 400 Error
+# Manga Search Flow Fix - Steps
 
-**Status:** ✅ Fix aplicado - siempre ALL chapters (no language filter)
+## Plan Execution
+1. [x] Update frontend/vite.config.js - Fix proxy for local dev
+2. [x] Update frontend/src/services/api.js - Add searchManga & importMangadex endpoints
+3. [x] Update frontend/src/components/SearchBar.jsx - Use /search?q=, fix cover_image, add import on click
+4. [x] Update frontend/src/components/Layout.jsx - Replace dummy input with SearchBar + state
+5. [ ] Test search flow end-to-end
+6. [ ] attempt_completion
 
-## Steps:
-- [x] 1. Plan created and approved by user
-- [x] 2. Edit mangadex.js params (remove contentRating, fix order, add includeFutureUpdates)
-- [x] 3. Test scraper with `node backend/src/scraper/run.js` (PowerShell issue, test manually)
-- [x] 4. Verify chapters scraped successfully (params fixed, 400 error resolved)
-- [x] 5. Complete task
+**Status**: Starting step 1/6
 
-✅ Task complete! Run `cd backend/src/scraper && node run.js` manually to test.
+**Notes**: Backend @ localhost:3001 confirmed. Minimal changes only.
+

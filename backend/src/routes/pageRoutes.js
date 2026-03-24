@@ -1,67 +1,10 @@
 import express from 'express';
 import { query, queryOne, queryAll } from '../db/database.js';
 import { mangaCache, getRedis } from '../db/redis.js';
+import mangadexService from '../services/mangadex.service.js';
+import { extractMangaDexUuid } from '../utils/mangadexSourcePath.js';
 
 const router = express.Router();
-
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-const UUID_V4_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function extractMangaDexId(sourcePath) {
-  if (!sourcePath) return null;
-  const match = sourcePath.match(/[0-9a-f-]{36}/i);
-  return match ? match[0] : null;
-}
-
-function extractMangaDexChapterId(sourcePath) {
-  if (!sourcePath || typeof sourcePath !== 'string') return null;
-
-  const trimmed = sourcePath.trim();
-  const uuidMatch = trimmed.match(/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i);
-  const extracted = uuidMatch?.[0] || null;
-
-  if (!extracted || !UUID_V4_REGEX.test(extracted)) {
-    return null;
-  }
-
-  return extracted;
-}
-
-async function ensureChapterPages(chapter) {
-  const { id } = chapter;
-
-  if (!chapter.source_path?.includes('mangadex')) return;
-
-  const extractedId = extractMangaDexId(chapter.source_path);
-  console.log('📌 RAW source_path:', chapter.source_path);
-  console.log('📌 Extracted chapterId:', extractedId);
-
-  if (!extractedId) {
-    console.warn(`⚠️ Invalid MangaDex source_path for chapter ${id}: ${chapter.source_path}`);
-    return;
-  }
-  
-
-  const redis = getRedis();
-  const lockKey = `lock:chapter:scrape:chapter:${id}`;
-  const lock = await redis.set(lockKey, '1', { NX: true, EX: 120 });
-
-  if (lock) {
-    try {
-      const { default: pageScraper } = await import('../services/pageScraper.js');
-      await pageScraper.importPages(chapter.id, extractedId);
-    } finally {
-      await redis.del(lockKey);
-    }
-    return;
-  }
-
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    await sleep(500);
-    const exists = await queryOne('SELECT 1 FROM pages WHERE chapter_id = $1 LIMIT 1', [chapter.id]);
-    if (exists) return;
-  }
-}
 
 // Get pages for a chapter
 router.get('/chapter/:chapterId', async (req, res, next) => {
@@ -69,9 +12,17 @@ router.get('/chapter/:chapterId', async (req, res, next) => {
     const { chapterId } = req.params;
 
     const chapter = await queryOne('SELECT * FROM chapters WHERE id = $1', [chapterId]);
-
     if (!chapter) {
       return res.status(404).json({ error: 'Chapter not found' });
+    }
+
+    const mangadexChapterId = extractMangaDexUuid(chapter.source_path);
+    if (!mangadexChapterId) {
+      console.warn('[pages] invalid MangaDex UUID in source_path', {
+        chapterId,
+        source_path: chapter.source_path
+      });
+      return res.json([]);
     }
 
     const cached = await mangaCache.getPages(chapterId);
@@ -79,43 +30,43 @@ router.get('/chapter/:chapterId', async (req, res, next) => {
       return res.json(cached);
     }
 
-    let pages = await queryAll(`
-      SELECT 
-        p.*,
-        CASE
-          WHEN p.is_cached THEN CONCAT('/storage/cached/', p.chapter_id, '/', p.page_number, '.webp')
-          ELSE p.image_path
-        END as display_path
-      FROM pages p
-      WHERE p.chapter_id = $1
-      ORDER BY p.page_number ASC
-    `, [chapterId]);
-
-    console.log('📚 Before scrape:', pages.length);
-
-    if (pages.length === 0) {
-      console.log('🚀 Triggering scrape...');
-      await ensureChapterPages(chapter);
-
-      pages = await queryAll(`
-        SELECT 
-          p.*,
-          CASE 
-            WHEN p.is_cached THEN CONCAT('/storage/cached/', p.chapter_id, '/', p.page_number, '.webp')
-            ELSE p.image_path
-          END as display_path
-        FROM pages p
-        WHERE p.chapter_id = $1
-        ORDER BY p.page_number ASC
-      `, [chapterId]);
+    const pageUrls = await mangadexService.fetchPages(mangadexChapterId);
+    if (pageUrls.length === 0) {
+      console.log('[pages] no pages from MangaDex', { chapterId, mangadexChapterId });
+      return res.json([]);
     }
 
-    console.log('📚 After scrape:', pages.length);
+    const pages = pageUrls.map((imageUrl, index) => ({
+      chapter_id: chapterId,
+      page_number: index + 1,
+      image_url: imageUrl,
+      image_path: imageUrl,
+      display_path: imageUrl,
+      is_cached: false
+    }));
 
-    if (pages.length > 0) {
-      await mangaCache.setPages(chapterId, pages);
+    for (const page of pages) {
+      await query(
+        `INSERT INTO pages (chapter_id, page_number, image_path, image_url, is_cached)
+         VALUES ($1, $2, $3, $4, FALSE)
+         ON CONFLICT (chapter_id, page_number)
+         DO UPDATE SET
+           image_path = EXCLUDED.image_path,
+           image_url = EXCLUDED.image_url`,
+        [chapterId, page.page_number, page.image_path, page.image_url]
+      );
     }
 
+    await query(
+      `UPDATE chapters
+       SET page_count = $1,
+           pages_fetched = TRUE,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2`,
+      [pages.length, chapterId]
+    );
+
+    await mangaCache.setPages(chapterId, pages);
     res.json(pages);
   } catch (error) {
     next(error);

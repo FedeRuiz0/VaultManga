@@ -52,12 +52,6 @@ export default function Reader() {
     
     enabled: Boolean(chapterId),
     staleTime: 2 * 60_000,
-    refetchInterval: (query) => {
-      const data = query.state.data;
-      console.log('PAGES', data);
-      return Array.isArray(data) && data.length === 0 ? 1500 : false;
-    },
-    refetchIntervalInBackground: true,
   });
 
   const totalPages = pages.length;
@@ -230,11 +224,8 @@ export default function Reader() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentPage, chapter, navigate]);
 
-  const waitingForPages =
-    Boolean(chapter) && !pagesError && pages.length === 0 && (pagesLoading || pagesFetching);
-
   // ⏳ Loading
-  if (chapterLoading || pagesLoading || waitingForPages) return <LoadingScreen />;
+  if (chapterLoading || pagesLoading) return <LoadingScreen />;
 
   // ❌ Error
   if (chapterError || pagesError || !chapter) {
@@ -278,7 +269,7 @@ export default function Reader() {
               <img
                 loading={index <= 1 ? 'eager' : 'lazy'}
                 decoding="async"
-                src={page.display_path || page.image_path}
+                src={page.url || page.display_path || page.image_path}
                 alt={`Page ${index + 1}`}
                 className={clsx(
                   'max-w-full h-auto',

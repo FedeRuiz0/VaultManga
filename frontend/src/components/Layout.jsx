@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -7,7 +6,6 @@ import {
   Library, 
   BookOpen, 
   Settings, 
-  Search, 
   Menu, 
   X,
   LogOut,
@@ -16,8 +14,8 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '../stores/authStore';
 import { useThemeToggle } from '../stores/themeStore.js';
+import SearchBar from './SearchBar.jsx';
 import clsx from 'clsx';
-
 
 const navItems = [
   { path: '/', icon: Home, label: 'Dashboard' },
@@ -26,10 +24,12 @@ const navItems = [
 ];
 
 export default function Layout({ children }) {
-
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
   const location = useLocation();
   const navigate = useNavigate();
+
   const { logout, user } = useAuthStore();
   const { toggleTheme, effectiveTheme } = useThemeToggle();
 
@@ -44,10 +44,15 @@ export default function Layout({ children }) {
     navigate('/login');
   };
 
+  const handleSearch = (query) => {
+    if (!query) return;
+    navigate(`/library?search=${encodeURIComponent(query)}`);
+  };
 
   return (
-<div className="min-h-screen bg-gray-50 dark:bg-dark-950">
-      {/* Mobile sidebar backdrop */}
+    <div className="min-h-screen bg-gray-50 dark:bg-dark-950">
+      
+      {/* Mobile backdrop */}
       <AnimatePresence>
         {sidebarOpen && (
           <motion.div
@@ -68,6 +73,7 @@ export default function Layout({ children }) {
         )}
       >
         <div className="flex flex-col h-full">
+          
           {/* Logo */}
           <div className="flex items-center justify-between p-4 border-b border-dark-800">
             <Link to="/" className="flex items-center gap-3">
@@ -76,6 +82,7 @@ export default function Layout({ children }) {
               </div>
               <span className="text-xl font-bold font-display">MangaVault</span>
             </Link>
+
             <button
               onClick={() => setSidebarOpen(false)}
               className="lg:hidden p-2 rounded-lg hover:bg-dark-800"
@@ -84,12 +91,13 @@ export default function Layout({ children }) {
             </button>
           </div>
 
-          {/* Navigation */}
+          {/* Nav */}
           <nav className="flex-1 p-4 space-y-2">
             {navItems.map((item) => {
-              const isActive = location.pathname === item.path || 
+              const isActive =
+                location.pathname === item.path ||
                 (item.path !== '/' && location.pathname.startsWith(item.path));
-              
+
               return (
                 <Link
                   key={item.path}
@@ -109,7 +117,7 @@ export default function Layout({ children }) {
             })}
           </nav>
 
-          {/* User section */}
+          {/* User */}
           <div className="p-4 border-t border-dark-800">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full bg-dark-700 flex items-center justify-center">
@@ -122,6 +130,7 @@ export default function Layout({ children }) {
                 <p className="text-xs text-gray-500 truncate">{user?.email || ''}</p>
               </div>
             </div>
+
             <button
               onClick={handleLogout}
               className="flex items-center gap-3 w-full px-4 py-2 rounded-lg text-gray-400 hover:bg-dark-800 hover:text-gray-200 transition-colors"
@@ -133,11 +142,13 @@ export default function Layout({ children }) {
         </div>
       </aside>
 
-{/* Main content */}
-<div className="lg:pl-64">
-  {/* Top bar */}
-  <header className="sticky top-0 z-30 bg-white/80 dark:bg-dark-950/80 backdrop-blur-xl border-b border-gray-200 dark:border-dark-800">
-    <div className="flex items-center justify-between px-4 py-3 lg:px-6">
+      {/* Main */}
+      <div className="lg:pl-64">
+        
+        {/* Topbar */}
+        <header className="sticky top-0 z-30 bg-white/80 dark:bg-dark-950/80 backdrop-blur-xl border-b border-gray-200 dark:border-dark-800">
+          <div className="flex items-center justify-between px-4 py-3 lg:px-6">
+            
             <div className="flex items-center gap-4">
               <button
                 onClick={() => setSidebarOpen(true)}
@@ -145,37 +156,33 @@ export default function Layout({ children }) {
               >
                 <Menu className="w-5 h-5" />
               </button>
-              
-              {/* Search */}
-              <div className="relative hidden sm:block">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                <input
-                  type="text"
-                  placeholder="Search manga..."
-                  className="w-64 lg:w-80 pl-10 pr-4 py-2 bg-white border border-gray-200 dark:bg-dark-800 dark:border-dark-700 rounded-xl text-sm focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all"
+
+              {/* 🔥 SEARCH FIX */}
+              <div className="relative hidden sm:block w-64 lg:w-80">
+                <SearchBar
+                  value={searchQuery}
+                  onChange={setSearchQuery}
+                  onSearch={handleSearch}
                 />
               </div>
             </div>
 
-
-            <div className="flex items-center gap-2">
-              <button 
-                onClick={toggleTheme}
-                className="p-2 rounded-lg hover:bg-dark-800 transition-colors"
-                title="Toggle theme"
-              >
-                {effectiveTheme === 'dark' ? (
-                  <Sun className="w-5 h-5" />
-                ) : (
-                  <Moon className="w-5 h-5" />
-                )}
-              </button>
-            </div>
+            {/* Theme */}
+            <button 
+              onClick={toggleTheme}
+              className="p-2 rounded-lg hover:bg-dark-800 transition-colors"
+            >
+              {effectiveTheme === 'dark' ? (
+                <Sun className="w-5 h-5" />
+              ) : (
+                <Moon className="w-5 h-5" />
+              )}
+            </button>
 
           </div>
         </header>
 
-        {/* Page content */}
+        {/* Content */}
         <main className="p-4 lg:p-6">
           {children}
         </main>
@@ -183,4 +190,3 @@ export default function Layout({ children }) {
     </div>
   );
 }
-

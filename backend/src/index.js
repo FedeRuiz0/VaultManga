@@ -11,7 +11,7 @@ import { initDatabase } from './db/database.js';
 import { initRedis } from './db/redis.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import routes from './routes/index.js';
-import { scanMangaFolders } from './services/mangaScanner.js';
+
 
 dotenv.config();
 
@@ -94,24 +94,10 @@ async function startServer() {
     await initRedis();
     console.log('✓ Redis connected');
 
-    // Scan manga folders on startup (in background)
-    if (process.env.AUTO_SCAN_ON_STARTUP === 'true') {
-      console.log('Scanning manga folders...');
-      scanMangaFolders().catch(err => 
-        console.error('Manga folder scan failed:', err)
-      );
-    }
-
-// Auto scraper
-    import('./services/autoScraper.js').then(({ default: autoScraper }) => {
-      autoScraper.start();
-    }).catch(console.error);
-
 // Start server
     app.listen(PORT, '0.0.0.0', () => {
       console.log(`🚀 MangaVault API running on port ${PORT}`);
       console.log(`📚 Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log('🤖 Auto-scraping habilitado - Nuevo contenido diario!');
     });
   } catch (error) {
     console.error('Failed to start server:', error);

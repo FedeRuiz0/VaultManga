@@ -7,8 +7,8 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      "/api": {
-        target: "http://mangavault_api:3001", // apuntando al contenedor backend
+      '/api': {
+target: 'http://localhost:3001', // localDocker: http://mangavault_api:3001
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, "/api/v1") // agrega /v1 solo una vez
       }

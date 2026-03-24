@@ -147,9 +147,10 @@ export default function MangaReader({
 
     // Load images (browser will cache them)
     [...nextPages, ...prevPages].forEach(page => {
-      if (page.display_path) {
+      const src = page.url || page.display_path || page.image_path;
+      if (src) {
         const img = new Image();
-        img.src = page.display_path;
+        img.src = src;
       }
     });
   }, [currentPage, pages, readerSettings.preloading, readerSettings.preloadCount]);
@@ -215,7 +216,7 @@ export default function MangaReader({
             className="relative"
           >
             <ProgressiveImage
-              src={page.display_path || page.image_path}
+              src={page.url || page.display_path || page.image_path}
               alt={`Page ${index + 1}`}
               className={clsx('mx-auto', fitClasses[readerSettings.fitMode])}
               onLoad={() => {
@@ -499,4 +500,3 @@ function ReaderSettingsMenu({ settings, onChange }) {
     </div>
   );
 }
-

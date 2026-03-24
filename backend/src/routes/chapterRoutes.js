@@ -1,14 +1,12 @@
 import express from 'express';
 import { query, queryOne, queryAll } from '../db/database.js';
 import { mangaCache } from '../db/redis.js';
+import mangadexService from '../services/mangadex.service.js';
+import { extractMangaDexUuid, normalizeMangaDexSourcePath } from '../utils/mangadexSourcePath.js';
 
 const router = express.Router();
 
-function extractMangaDexId(sourcePath) {
-  if (!sourcePath) return null;
-  const match = String(sourcePath).match(/[0-9a-f-]{36}/i);
-  return match ? match[0] : null;
-}
+
 
 
 // Get chapters for a manga
@@ -32,43 +30,34 @@ router.get('/manga/:mangaId', async (req, res, next) => {
 
     if (chapterCount === 0) {
       console.log(`⚠️ No chapters found for manga ${mangaId}. Checking for auto-import...`);
-      
-      // Get manga source
-      if (manga?.source_path?.includes('mangadex')) {
-        const mangaDexId = extractMangaDexId(manga.source_path);
-        if (!mangaDexId) {
-          console.warn(`⚠️ Invalid manga source_path for auto-import: ${manga.source_path}`);
-          return res.json(chapters);
-        }
-        console.log(`🚀 Auto-importing chapters from MangaDex ID: ${mangaDexId}`);
-        
-        const { default: mangaDexScraper } = await import('../services/mangadexScraper.js');
-        const imported = await mangaDexScraper.importChapters(mangaId, mangaDexId);
-        console.log(`✅ Imported ${imported} chapters`);
-        
-        // Re-fetch chapters
-        chapters = await queryAll(`
-          SELECT 
-            c.*,
-            COALESCE(p.total_pages, 0) as total_pages,
-            COALESCE(p.cached_pages, 0) as cached_pages
-          FROM chapters c
-          LEFT JOIN (
-            SELECT 
-              chapter_id,
-              COUNT(*) as total_pages,
-              COUNT(*) FILTER (WHERE is_cached) as cached_pages
-            FROM pages
-            GROUP BY chapter_id
-          ) p ON c.id = p.chapter_id
-          WHERE c.manga_id = $1
-          ORDER BY c.chapter_number::numeric ${order}
-        `, [mangaId]);
+      const manga = await queryOne('SELECT source_path FROM manga WHERE id = $1', [mangaId]);
+
+      const normalizedMangaSource = normalizeMangaDexSourcePath(manga?.source_path || '');
+      const mangaDexId = extractMangaDexUuid(normalizedMangaSource || '');
+
+      if (!mangaDexId) {
+        console.warn(`⚠️ Invalid manga source_path for auto-import: ${manga?.source_path || 'null'}`);
       } else {
-        console.log(`❌ Cannot auto-import. Source path: ${manga?.source_path || 'null'}`);
+        console.log(`🚀 Auto-importing chapters from MangaDex ID: ${mangaDexId}`);
+        const remoteChapters = await mangadexService.fetchChapters(mangaDexId);
+
+        for (const remoteChapter of remoteChapters) {
+          await query(
+            `INSERT INTO chapters (id, manga_id, chapter_number, title, source_path, page_count, pages_fetched)
+             VALUES (uuid_generate_v4(), $1, $2, $3, $4, 0, FALSE)
+             ON CONFLICT (manga_id, chapter_number)
+             DO UPDATE SET source_path = EXCLUDED.source_path,
+                           title = EXCLUDED.title,
+                           updated_at = CURRENT_TIMESTAMP`,
+            [mangaId, remoteChapter.chapterNumber, remoteChapter.title, remoteChapter.source_path]
+          );
+        }
+
+        console.log(`✅ Imported or updated ${remoteChapters.length} chapters`);
       }
-    } else {
-      chapters = await queryAll(`
+    }
+
+    chapters = await queryAll(`
         SELECT 
           c.*,
           COALESCE(p.total_pages, 0) as total_pages,
@@ -85,7 +74,6 @@ router.get('/manga/:mangaId', async (req, res, next) => {
         WHERE c.manga_id = $1
         ORDER BY c.chapter_number::numeric ${order}
       `, [mangaId]);
-    }
 
     // Cache the result
     await mangaCache.setChapters(mangaId, chapters);
@@ -331,4 +319,3 @@ router.get('/:id/prev', async (req, res, next) => {
 });
 
 export default router;
-
