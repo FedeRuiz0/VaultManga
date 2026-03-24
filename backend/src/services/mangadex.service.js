@@ -8,8 +8,8 @@ const client = axios.create({
   baseURL: BASE_URL,
   timeout: HTTP_TIMEOUT_MS,
   headers: {
-    'User-Agent': 'VaultManga/1.0'
-  }
+    'User-Agent': 'VaultManga/1.0',
+  },
 });
 
 function pickLocalizedText(data, preferred = 'en', fallback = '') {
@@ -32,7 +32,7 @@ async function request(config, logContext = {}) {
     endpoint,
     mangaId: logContext.mangaId || null,
     chapterId: logContext.chapterId || null,
-    params: config.params || null
+    params: config.params || null,
   });
 
   const response = await client.request(config);
@@ -45,7 +45,7 @@ async function request(config, logContext = {}) {
     mangaId: logContext.mangaId || null,
     chapterId: logContext.chapterId || null,
     chaptersCount,
-    pagesCount
+    pagesCount,
   });
 
   return response.data;
@@ -60,28 +60,59 @@ async function searchMangaByTitle(title, limit = 10) {
     params: {
       title,
       limit,
-      includes: ['cover_art']
-    }
+      includes: ['cover_art'],
+    },
   });
 
   return (data.data || []).map((item) => ({
     id: item.id,
     title: pickLocalizedText(item.attributes?.title, 'en', 'Unknown title'),
     description: pickLocalizedText(item.attributes?.description, 'en', ''),
-    cover: buildCoverUrl(item.id, data.includes || [])
+    cover: buildCoverUrl(item.id, data.includes || []),
   }));
+}
+
+async function getMangaById(mangaId) {
+  if (!mangaId) return null;
+
+  const data = await request(
+    {
+      method: 'GET',
+      url: `/manga/${mangaId}`,
+      params: {
+        includes: ['cover_art'],
+      },
+    },
+    { mangaId }
+  );
+
+  const item = data?.data;
+  if (!item) return null;
+
+  const attributes = item.attributes || {};
+
+  return {
+    id: item.id,
+    title: pickLocalizedText(attributes.title, 'en', 'Unknown title'),
+    description: pickLocalizedText(attributes.description, 'en', ''),
+    cover: buildCoverUrl(item.id, data.includes || []),
+    status: attributes.status || 'ongoing',
+  };
 }
 
 async function fetchAtHome(chapterId) {
   try {
-    return await request({
-      method: 'GET',
-      url: `/at-home/server/${chapterId}`
-    }, { chapterId });
+    return await request(
+      {
+        method: 'GET',
+        url: `/at-home/server/${chapterId}`,
+      },
+      { chapterId }
+    );
   } catch (error) {
     console.warn('[mangadex] at-home failed', {
       chapterId,
-      message: error.response?.data || error.message
+      message: error.response?.data || error.message,
     });
     return null;
   }
@@ -109,16 +140,19 @@ async function fetchChapters(mangaId) {
   let offset = 0;
 
   while (true) {
-    const data = await request({
-      method: 'GET',
-      url: `/manga/${mangaId}/feed`,
-      params: {
-        limit: FEED_LIMIT,
-        offset,
-        translatedLanguage: ['en'],
-        'order[chapter]': 'asc'
-      }
-    }, { mangaId });
+    const data = await request(
+      {
+        method: 'GET',
+        url: `/manga/${mangaId}/feed`,
+        params: {
+          limit: FEED_LIMIT,
+          offset,
+          translatedLanguage: ['en', 'es', 'pt-br'],
+          'order[chapter]': 'asc',
+        },
+      },
+      { mangaId }
+    );
 
     const items = data?.data || [];
     if (items.length === 0) break;
@@ -127,35 +161,31 @@ async function fetchChapters(mangaId) {
       const chapterNumber = String(item?.attributes?.chapter || '').trim();
       if (!chapterNumber) continue;
 
-      const chapterId = item.id;
-      const atHome = await fetchAtHome(chapterId);
-      const hash = atHome?.chapter?.hash;
-      const pages = atHome?.chapter?.data;
-
-      if (!hash || !Array.isArray(pages) || pages.length === 0) {
-        console.warn('[mangadex] skipping empty chapter', { mangaId, chapterId, chapterNumber });
-        continue;
-      }
-
       chapters.push({
-        chapterId,
+        chapters,
         chapterNumber,
-        title: item.attributes?.title || `Chapter ${chapterNumber}`,
-        source_path: `mangadex://${chapterId}`
-      });
+  title: item.attributes?.title || `Chapter ${chapterNumber}`,
+  source_path: `mangadex://${chapterId}`,
+  language: item.attributes?.translatedLanguage || 'unknown',
+});
     }
 
     offset += FEED_LIMIT;
     if (items.length < FEED_LIMIT) break;
   }
 
-  console.log('[mangadex] fetchChapters done', { mangaId, chaptersCount: chapters.length });
+  console.log('[mangadex] fetchChapters done', {
+    mangaId,
+    chaptersCount: chapters.length,
+  });
+
   return chapters;
 }
 
 export default {
   searchMangaByTitle,
+  getMangaById,
   fetchChapters,
   fetchPages,
-  fetchAtHome
+  fetchAtHome,
 };

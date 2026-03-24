@@ -13,23 +13,28 @@ const router = express.Router();
 router.get('/manga/:mangaId', async (req, res, next) => {
   try {
     const { mangaId } = req.params;
-    const { sort = 'asc' } = req.query;
+    const { sort = 'asc', language } = req.query;
 
-    // Try cache first
-    const cached = await mangaCache.getChapters(mangaId);
+    const requestedLanguage = String(language || '').trim().toLowerCase();
+    const preferredLanguages = requestedLanguage
+      ? [requestedLanguage]
+      : ['es', 'en'];
+
+    const cached = null;
     if (cached) {
       return res.json(cached);
     }
 
-    let chapters = [];
     const order = sort === 'desc' ? 'DESC' : 'ASC';
-    
-    // First check count
-    const countResult = await queryOne('SELECT COUNT(*) as count FROM chapters WHERE manga_id = $1', [mangaId]);
-    const chapterCount = parseInt(countResult.count);
+
+    const countResult = await queryOne(
+      'SELECT COUNT(*) as count FROM chapters WHERE manga_id = $1',
+      [mangaId]
+    );
+    const chapterCount = parseInt(countResult.count, 10);
 
     if (chapterCount === 0) {
-      console.log(`⚠️ No chapters found for manga ${mangaId}. Checking for auto-import...`);
+      console.log(`⚠️ No chapters found for manga ${mangaId}. Checking for auto-import.`);
       const manga = await queryOne('SELECT source_path FROM manga WHERE id = $1', [mangaId]);
 
       const normalizedMangaSource = normalizeMangaDexSourcePath(manga?.source_path || '');
@@ -43,13 +48,25 @@ router.get('/manga/:mangaId', async (req, res, next) => {
 
         for (const remoteChapter of remoteChapters) {
           await query(
-            `INSERT INTO chapters (id, manga_id, chapter_number, title, source_path, page_count, pages_fetched)
-             VALUES (uuid_generate_v4(), $1, $2, $3, $4, 0, FALSE)
-             ON CONFLICT (manga_id, chapter_number)
-             DO UPDATE SET source_path = EXCLUDED.source_path,
-                           title = EXCLUDED.title,
-                           updated_at = CURRENT_TIMESTAMP`,
-            [mangaId, remoteChapter.chapterNumber, remoteChapter.title, remoteChapter.source_path]
+            `
+            INSERT INTO chapters (
+              id, manga_id, chapter_number, title, source_path, page_count, pages_fetched, language
+            )
+            VALUES (uuid_generate_v4(), $1, $2, $3, $4, 0, FALSE, $5)
+            ON CONFLICT (manga_id, chapter_number)
+            DO UPDATE SET
+              source_path = EXCLUDED.source_path,
+              title = EXCLUDED.title,
+              language = EXCLUDED.language,
+              updated_at = CURRENT_TIMESTAMP
+            `,
+            [
+              mangaId,
+              remoteChapter.chapterNumber,
+              remoteChapter.title,
+              remoteChapter.source_path,
+              remoteChapter.language || 'unknown',
+            ]
           );
         }
 
@@ -57,28 +74,72 @@ router.get('/manga/:mangaId', async (req, res, next) => {
       }
     }
 
-    chapters = await queryAll(`
-        SELECT 
+    let chapters = [];
+    let selectedLanguage = null;
+
+    for (const lang of preferredLanguages) {
+      const rows = await queryAll(
+        `
+        SELECT
           c.*,
           COALESCE(p.total_pages, 0) as total_pages,
           COALESCE(p.cached_pages, 0) as cached_pages
         FROM chapters c
         LEFT JOIN (
-          SELECT 
+          SELECT
             chapter_id,
             COUNT(*) as total_pages,
             COUNT(*) FILTER (WHERE is_cached) as cached_pages
-        FROM pages
-        GROUP BY chapter_id
+          FROM pages
+          GROUP BY chapter_id
         ) p ON c.id = p.chapter_id
         WHERE c.manga_id = $1
+          AND LOWER(c.language) = LOWER($2)
         ORDER BY c.chapter_number::numeric ${order}
-      `, [mangaId]);
+        `,
+        [mangaId, lang]
+      );
 
-    // Cache the result
-    await mangaCache.setChapters(mangaId, chapters);
+      if (rows.length > 0) {
+        chapters = rows;
+        selectedLanguage = lang;
+        break;
+      }
+    }
 
-    res.json(chapters);
+    // Fallback final: si no hubo es/en o el idioma pedido, devolver todos agrupables
+    if (chapters.length === 0) {
+      chapters = await queryAll(
+        `
+        SELECT
+          c.*,
+          COALESCE(p.total_pages, 0) as total_pages,
+          COALESCE(p.cached_pages, 0) as cached_pages
+        FROM chapters c
+        LEFT JOIN (
+          SELECT
+            chapter_id,
+            COUNT(*) as total_pages,
+            COUNT(*) FILTER (WHERE is_cached) as cached_pages
+          FROM pages
+          GROUP BY chapter_id
+        ) p ON c.id = p.chapter_id
+        WHERE c.manga_id = $1
+        ORDER BY LOWER(c.language) ASC, c.chapter_number::numeric ${order}
+        `,
+        [mangaId]
+      );
+
+      selectedLanguage = 'all';
+    }
+
+    const payload = {
+      language: selectedLanguage,
+      available_languages: [...new Set(chapters.map((c) => String(c.language || 'unknown').toLowerCase()))],
+      data: chapters,
+    };
+
+    res.json(payload);
   } catch (error) {
     console.error('Chapters endpoint error:', error);
     next(error);
@@ -127,12 +188,16 @@ router.post('/', async (req, res, next) => {
 
     const chapter = await queryOne(`
       INSERT INTO chapters (
-        manga_id, chapper_number, volume, title, source_path, page_count, pages_fetched
-      ) VALUES ($1, $2, $3, $4, $5, $6, COALESCE ($7, FALSE))
-      ON CONFLICT (manga_id, chapter_number) 
-      DO UPDATE SET source_path = $5, page_count = $6, pages_fetched = COALESCE($7, chapters.pages_fetched)
-      RETURNING *
-    `, [manga_id, chapter_number, volume, title, source_path, page_count, req.body.pages_fetched]);
+        manga_id, chapter_number, volume, title, source_path, page_count, pages_fetched
+      ) VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, FALSE))
+      ON CONFLICT (manga_id, chapter_number)
+      DO UPDATE SET
+        source_path = EXCLUDED.source_path,
+        page_count = EXCLUDED.page_count,
+        pages_fetched = COALESCE(EXCLUDED.pages_fetched, chapters.pages_fetched),
+        updated_at = CURRENT_TIMESTAMP
+        RETURNING *
+      `, [manga_id, chapter_number, volume, title, source_path, page_count, req.body.pages_fetched]);
 
     // Invalidate chapters cache
     await mangaCache.invalidateChapters(manga_id);

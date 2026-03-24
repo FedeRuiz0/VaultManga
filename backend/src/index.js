@@ -1,121 +1,130 @@
 import express from 'express';
 import cors from 'cors';
-import helmet from 'helmet';
 import morgan from 'morgan';
-import rateLimit from 'express-rate-limit';
-import dotenv from 'dotenv';
-import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
 
 import { initDatabase } from './db/database.js';
 import { initRedis } from './db/redis.js';
-import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
-import routes from './routes/index.js';
 
+// Routes
+import mangaRoutes from './routes/mangaRoutes.js';
+import chapterRoutes from './routes/chapterRoutes.js';
+import pageRoutes from './routes/pageRoutes.js';
+import libraryRoutes from './routes/libraryRoutes.js';
+import authRoutes from './routes/authRoutes.js';
+import settingsRoutes from './routes/settingsRoutes.js';
+import statsRoutes from './routes/statsRoutes.js';
 
-dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+// Bots
+import runLibrarySeedBot from './bots/librarySeedBot.js';
+import runGenreSeedBot from './bots/genreSeedBot.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Security middleware
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: "cross-origin" }
-}));
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-  credentials: true
-}));
+// ==============================
+// 🧠 Middleware
+// ==============================
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000,
-  message: { error: 'Too many requests, please try again later.' }
-});
-app.use('/api/', limiter);
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(morgan('dev'));
 
-// Body parsing
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// ==============================
+// 📡 Routes
+// ==============================
 
-// Logging
-if (process.env.NODE_ENV !== 'test') {
-  app.use(morgan('combined'));
-}
+app.use('/api/v1/manga', mangaRoutes);
+app.use('/api/v1/chapters', chapterRoutes);
+app.use('/api/v1/pages', pageRoutes);
+app.use('/api/v1/library', libraryRoutes);
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/settings', settingsRoutes);
+app.use('/api/v1/stats', statsRoutes);
 
-// Static files for manga images
-app.use('/storage', express.static(join(__dirname, '../storage/manga')));
-app.use('/manga/library', express.static('/manga/library', { 
-  maxAge: '1d', 
-  etag: false,
-  setHeaders: (res, path) => {
-    res.set('Access-Control-Allow-Origin', '*');
-  }
-}));
+// ==============================
+// ❤️ Health Check
+// ==============================
 
-
-// API Routes
-app.use('/api/v1', routes);
-
-// Health check
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'healthy', 
+  res.json({
+    status: 'ok',
+    service: 'MangaVault API',
     timestamp: new Date().toISOString(),
-    uptime: process.uptime()
   });
 });
 
-// Error handling
-app.use(notFoundHandler);
-app.use(errorHandler);
+// ==============================
+// ❌ Error Handler
+// ==============================
 
-// Initialize services and start server
+app.use((err, req, res, next) => {
+  console.error('[ERROR]', err);
 
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught exception:', error);
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal Server Error',
+  });
 });
 
-process.on('unhandledRejection', (reason) => {
-  console.error('Unhandled rejection:', reason);
-});
+// ==============================
+// 🚀 START SERVER
+// ==============================
 
 async function startServer() {
   try {
-    // Initialize database
+    console.log('🔌 Connecting to database...');
     await initDatabase();
-    console.log('✓ Database connected');
+    console.log('✅ Database connected');
 
-    // Initialize Redis
+    console.log('🔌 Connecting to Redis...');
     await initRedis();
-    console.log('✓ Redis connected');
+    console.log('✅ Redis connected');
 
-// Start server
-    app.listen(PORT, '0.0.0.0', () => {
+    app.listen(PORT, () => {
       console.log(`🚀 MangaVault API running on port ${PORT}`);
       console.log(`📚 Environment: ${process.env.NODE_ENV || 'development'}`);
     });
+
+    console.log('ENABLE_STARTUP_BOTS =', process.env.ENABLE_STARTUP_BOTS);
+    console.log('STARTUP_GENRES =', process.env.STARTUP_GENRES);
+
+    // ==============================
+    // 🤖 STARTUP BOTS
+    // ==============================
+
+    if (process.env.ENABLE_STARTUP_BOTS === 'true') {
+      console.log('🤖 Starting startup bots...');
+
+      // 🔹 Bot 1: Popular seed
+      runLibrarySeedBot({
+        limit: Number(process.env.SEED_POPULAR_LIMIT || 30),
+        importChapters: process.env.SEED_IMPORT_CHAPTERS !== 'false',
+        delayMs: Number(process.env.SEED_REQUEST_DELAY_MS || 400),
+      }).catch((err) => {
+        console.error('[library-seed-bot] failed:', err.message);
+      });
+
+      // 🔹 Bot 2: Genres
+      const genres = (process.env.STARTUP_GENRES || '')
+        .split(',')
+        .map((g) => g.trim())
+        .filter(Boolean);
+
+      for (const genre of genres) {
+        runGenreSeedBot(genre, {
+          limit: Number(process.env.SEED_GENRE_LIMIT || 20),
+          importChapters: process.env.SEED_IMPORT_CHAPTERS !== 'false',
+          delayMs: Number(process.env.SEED_REQUEST_DELAY_MS || 400),
+        }).catch((err) => {
+          console.error(`[genre-seed-bot:${genre}] failed:`, err.message);
+        });
+      }
+    } else {
+      console.log('⚠️ Startup bots disabled');
+    }
   } catch (error) {
-    console.error('Failed to start server:', error);
+    console.error('❌ Failed to start server:', error);
     process.exit(1);
   }
 }
 
-// Handle graceful shutdown
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM received. Shutting down gracefully...');
-  process.exit(0);
-});
-
-process.on('SIGINT', async () => {
-  console.log('SIGINT received. Shutting down gracefully...');
-  process.exit(0);
-});
-
 startServer();
-
-export default app;

@@ -96,36 +96,34 @@ export async function initDatabase() {
 }
 
 async function runMigrations() {
-  const migrationsDir = path.join(__dirname, '../../database');
-  
+  const migrationsDir = path.join(__dirname, '../../../database');
+
   try {
-    // Check if migrations table exists
-    const tableExists = await queryOne(
-      "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'migrations')"
+    const tableExistsResult = await queryOne(
+      "SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'migrations') AS exists"
     );
-    
-    if (!tableExists) {
+
+    if (!tableExistsResult || !tableExistsResult.exists) {
       await query(`
-        CREATE TABLE migrations (
+        CREATE TABLE IF NOT EXISTS migrations (
           id SERIAL PRIMARY KEY,
           name VARCHAR(255) NOT NULL,
           executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
       `);
     }
-    
-    // Get executed migrations
+
     const executed = await queryAll('SELECT name FROM migrations');
-    const executedNames = new Set(executed.map(m => m.name));
-    
-    // Read migration files
+    const executedNames = new Set(executed.map((m) => m.name));
+
     const migrationsPath = path.join(migrationsDir, 'migrations');
-    
+
     if (fs.existsSync(migrationsPath)) {
-      const files = fs.readdirSync(migrationsPath)
-        .filter(f => f.endsWith('.sql'))
+      const files = fs
+        .readdirSync(migrationsPath)
+        .filter((f) => f.endsWith('.sql'))
         .sort();
-      
+
       for (const file of files) {
         if (!executedNames.has(file)) {
           console.log(`Running migration: ${file}`);

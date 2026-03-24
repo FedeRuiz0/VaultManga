@@ -6,12 +6,86 @@ import mangadexService from '../services/mangadex.service.js';
 
 const router = express.Router();
 
+function toBoolean(value, fallback = false) {
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'y'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'n'].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
+async function upsertMangaFromMangadex(mangadexId) {
+  if (!mangadexId) {
+    throw new Error('mangadexId is required');
+  }
+
+  const mangaData = await mangadexService.getMangaById(mangadexId);
+  if (!mangaData) {
+    throw new Error(`MangaDex returned no data for manga ${mangadexId}`);
+  }
+
+  const sourcePath = `mangadex://${mangadexId}`;
+
+  const existing = await queryOne(
+    'SELECT * FROM manga WHERE source_path = $1 LIMIT 1',
+    [sourcePath]
+  );
+
+  let manga;
+
+  if (existing) {
+    manga = await queryOne(
+      `
+      UPDATE manga
+      SET
+        title = $2,
+        description = $3,
+        cover_image = $4,
+        status = COALESCE($5, status),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING *
+      `,
+      [
+        existing.id,
+        mangaData.title,
+        mangaData.description,
+        mangaData.cover,
+        mangaData.status || 'ongoing',
+      ]
+    );
+  } else {
+    manga = await queryOne(
+      `
+      INSERT INTO manga (
+        title, description, cover_image, source_path, status
+      )
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING *
+      `,
+      [
+        mangaData.title,
+        mangaData.description,
+        mangaData.cover,
+        sourcePath,
+        mangaData.status || 'ongoing',
+      ]
+    );
+  }
+
+  await mangaCache.invalidateManga(manga.id);
+
+  return manga;
+}
+
 // Get all manga with pagination and filters
 router.get('/', async (req, res, next) => {
   try {
-    const { 
-      page = 1, 
-      limit = 20, 
+    const {
+      page = 1,
+      limit = 20,
       search = '',
       title,
       status,
@@ -28,15 +102,13 @@ router.get('/', async (req, res, next) => {
       const searchResults = await mangadexService.searchMangaByTitle(title, Number(limit) || 20);
       return res.json({ data: searchResults, pagination: null });
     }
-    
-    // Try cache first
+
     const cacheKey = { page, limit, search, status, genre, sort, order, favorites, incomplete };
     const cached = await mangaCache.getMangaList(page, limit, cacheKey);
     if (cached) {
       return res.json(cached);
     }
 
-    // Build query
     let whereClause = 'WHERE 1=1';
     const params = [];
     let paramIndex = 1;
@@ -67,35 +139,32 @@ router.get('/', async (req, res, next) => {
       paramIndex++;
     }
 
-    // Validate sort column
     const allowedSortColumns = ['title', 'created_at', 'updated_at', 'last_read_at', 'year'];
     const sortColumn = allowedSortColumns.includes(sort) ? `m.${sort}` : 'm.last_read_at';
     const sortOrder = order.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
 
-    // Get total count
     const countResult = await query(
       `SELECT COUNT(*) FROM manga m ${whereClause}`,
       params
     );
-    const total = parseInt(countResult.rows[0].count);
+    const total = parseInt(countResult.rows[0].count, 10);
 
-    // Get manga with progress
     params.push(limit, offset);
     const manga = await queryAll(`
-      SELECT 
+      SELECT
         m.*,
         COALESCE(c.total_chapters, 0) as total_chapters,
         COALESCE(c.read_chapters, 0) as read_chapters,
         ROUND(
-          CASE 
-            WHEN c.total_chapters > 0 
+          CASE
+            WHEN c.total_chapters > 0
             THEN (c.read_chapters::numeric / c.total_chapters * 100)
-            ELSE 0 
+            ELSE 0
           END, 1
         ) as progress_percentage
       FROM manga m
       LEFT JOIN (
-        SELECT 
+        SELECT
           manga_id,
           COUNT(*) as total_chapters,
           COUNT(*) FILTER (WHERE is_read) as read_chapters
@@ -110,34 +179,40 @@ router.get('/', async (req, res, next) => {
     const result = {
       data: manga,
       pagination: {
-        page: parseInt(page),
-        limit: parseInt(limit),
+        page: parseInt(page, 10),
+        limit: parseInt(limit, 10),
         total,
         totalPages: Math.ceil(total / limit)
       }
     };
 
-    console.log('[GET /api/v1/manga] rows returned:', manga.length);
-    console.log('[GET /api/v1/manga] response payload:', result);
-    res.json(result);
-
-    // Cache the result
     await mangaCache.setMangaList(page, limit, cacheKey, result);
+    res.json(result);
   } catch (error) {
     next(error);
   }
 });
 
+// Search MangaDex, optionally persist one selected result locally
 router.get('/search', async (req, res, next) => {
   try {
-    const { q, limit = 20 } = req.query;
+    const { q, limit = 20, persist = 'false', mangadexId } = req.query;
 
     if (!q) {
       return res.status(400).json({ error: 'Query is required' });
     }
 
     const results = await mangadexService.searchMangaByTitle(q, Number(limit));
-    res.json({ data: results });
+    let imported = null;
+
+    if (toBoolean(persist) && mangadexId) {
+      imported = await upsertMangaFromMangadex(mangadexId);
+    }
+
+    res.json({
+      data: results,
+      imported,
+    });
   } catch (err) {
     next(err);
   }
@@ -148,27 +223,26 @@ router.get('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    // Try cache first
     const cached = await mangaCache.getManga(id);
     if (cached) {
       return res.json(cached);
     }
 
     const manga = await queryOne(`
-      SELECT 
+      SELECT
         m.*,
         COALESCE(c.total_chapters, 0) as total_chapters,
         COALESCE(c.read_chapters, 0) as read_chapters,
         ROUND(
-          CASE 
-            WHEN c.total_chapters > 0 
+          CASE
+            WHEN c.total_chapters > 0
             THEN (c.read_chapters::numeric / c.total_chapters * 100)
-            ELSE 0 
+            ELSE 0
           END, 1
-        ) as progress_percentage FROM manga m
-
+        ) as progress_percentage
+      FROM manga m
       LEFT JOIN (
-        SELECT 
+        SELECT
           manga_id,
           COUNT(*) as total_chapters,
           COUNT(*) FILTER (WHERE is_read) as read_chapters
@@ -183,9 +257,29 @@ router.get('/:id', async (req, res, next) => {
       return res.status(404).json({ error: 'Manga not found' });
     }
 
-    // Cache and return
     await mangaCache.setManga(id, manga);
     res.json(manga);
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/:id/languages', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const languages = await queryAll(
+      `
+      SELECT LOWER(language) as language, COUNT(*)::int as chapters
+      FROM chapters
+      WHERE manga_id = $1
+      GROUP BY LOWER(language)
+      ORDER BY chapters DESC, language ASC
+      `,
+      [id]
+    );
+
+    res.json(languages);
   } catch (error) {
     next(error);
   }
@@ -194,10 +288,10 @@ router.get('/:id', async (req, res, next) => {
 // Create new manga entry
 router.post('/', async (req, res, next) => {
   try {
-    const { 
-      title, 
-      alt_titles = [], 
-      description, 
+    const {
+      title,
+      alt_titles = [],
+      description,
       source_path,
       genre = [],
       author,
@@ -219,8 +313,7 @@ router.post('/', async (req, res, next) => {
       RETURNING *
     `, [title, alt_titles, description, source_path, genre, author, artist, status, year, cover_image]);
 
-    // Scan the folder for chapters
-    scanMangaFolder(source_path).catch(err => 
+    scanMangaFolder(source_path).catch(err =>
       console.error(`Failed to scan manga folder: ${source_path}`, err)
     );
 
@@ -234,10 +327,10 @@ router.post('/', async (req, res, next) => {
 router.put('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { 
-      title, 
-      alt_titles, 
-      description, 
+    const {
+      title,
+      alt_titles,
+      description,
       genre,
       author,
       artist,
@@ -270,9 +363,7 @@ router.put('/:id', async (req, res, next) => {
       return res.status(404).json({ error: 'Manga not found' });
     }
 
-    // Invalidate cache
     await mangaCache.invalidateManga(id);
-
     res.json(manga);
   } catch (error) {
     next(error);
@@ -287,26 +378,7 @@ router.post('/import', async (req, res, next) => {
       return res.status(400).json({ error: 'mangadexId is required' });
     }
 
-    // 1. Traer data desde MangaDex
-    const mangaData = await mangadexService.getMangaById(mangadexId);
-
-    // 2. Insertar en DB
-    const manga = await queryOne(`
-      INSERT INTO manga (
-        title, description, cover_image, source_path, status
-      )
-      VALUES ($1, $2, $3, $4, $5)
-      ON CONFLICT (source_path) DO UPDATE
-      SET title = EXCLUDED.title
-      RETURNING *
-    `, [
-      mangaData.title,
-      mangaData.description,
-      mangaData.cover,
-      `mangadex://${mangadexId}`,
-      mangaData.status || 'ongoing'
-    ]);
-
+    const manga = await upsertMangaFromMangadex(mangadexId);
     res.json(manga);
   } catch (err) {
     next(err);
@@ -331,7 +403,6 @@ router.patch('/:id/favorite', async (req, res, next) => {
     }
 
     await mangaCache.invalidateManga(id);
-
     res.json(manga);
   } catch (error) {
     next(error);
@@ -352,7 +423,6 @@ router.delete('/:id', async (req, res, next) => {
     }
 
     await mangaCache.invalidateManga(id);
-
     res.json({ success: true, message: 'Manga deleted successfully' });
   } catch (error) {
     next(error);
@@ -367,56 +437,8 @@ router.get('/meta/genres', async (req, res, next) => {
       WHERE genre IS NOT NULL AND genre != ''
       ORDER BY genre
     `);
-    
+
     res.json(genres.map(g => g.genre));
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Get single manga by ID
-router.get('/:id', async (req, res, next) => {
-  try {
-    const { id } = req.params;
-
-    // Try cache first
-    const cached = await mangaCache.getManga(id);
-    if (cached) {
-      return res.json(cached);
-    }
-
-    const manga = await queryOne(`
-      SELECT 
-        m.*,
-        COALESCE(c.total_chapters, 0) as total_chapters,
-        COALESCE(c.read_chapters, 0) as read_chapters,
-        ROUND(
-          CASE 
-            WHEN c.total_chapters > 0 
-            THEN (c.read_chapters::numeric / c.total_chapters * 100)
-            ELSE 0 
-          END, 1
-        ) as progress_percentage FROM manga m
-
-      LEFT JOIN (
-        SELECT 
-          manga_id,
-          COUNT(*) as total_chapters,
-          COUNT(*) FILTER (WHERE is_read) as read_chapters
-        FROM chapters
-        WHERE manga_id = $1
-        GROUP BY manga_id
-      ) c ON m.id = c.manga_id
-      WHERE m.id = $1
-    `, [id]);
-
-    if (!manga) {
-      return res.status(404).json({ error: 'Manga not found' });
-    }
-
-    // Cache and return
-    await mangaCache.setManga(id, manga);
-    res.json(manga);
   } catch (error) {
     next(error);
   }

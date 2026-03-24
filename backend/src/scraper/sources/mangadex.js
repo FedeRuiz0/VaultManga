@@ -64,12 +64,12 @@ export async function scrapeChapterList(mangaUrl) {
 
   const chapters = await mangadexService.fetchChapters(mangaId);
   return chapters.map((chapter) => ({
-    chapter_number: chapter.chapterNumber,
-    title: chapter.title,
-    source_path: chapter.source_path,
-    url: chapter.chapterId,
-    language: 'en'
-  }));
+  chapter_number: chapter.chapterNumber,
+  title: chapter.title,
+  source_path: chapter.source_path,
+  url: chapter.chapterId,
+  language: chapter.language || 'unknown'
+}));
 }
 
 export async function scrapeChapterPages(chapterId) {
