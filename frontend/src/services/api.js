@@ -1,20 +1,60 @@
 const API_BASE = import.meta.env.VITE_API_BASE || '/api';
 
+function buildQuery(params = {}) {
+  const searchParams = new URLSearchParams();
+
+  Object.entries(params).forEach(([key, value]) => {
+    if (value === undefined || value === null || value === '') return;
+
+    if (Array.isArray(value)) {
+      value.forEach((item) => {
+        if (item !== undefined && item !== null && item !== '') {
+          searchParams.append(key, item);
+        }
+      });
+      return;
+    }
+
+    searchParams.set(key, value);
+  });
+
+  const query = searchParams.toString();
+  return query ? `?${query}` : '';
+}
+
 async function request(path, options = {}) {
+  const {
+    method = 'GET',
+    body,
+    headers = {},
+    signal,
+  } = options;
+
   const response = await fetch(`${API_BASE}${path}`, {
-    cache: 'no-cache',
+    method,
+    signal,
     headers: {
       'Content-Type': 'application/json',
-      ...(options.headers || {}),
+      ...headers,
     },
-    ...options,
+    body: body ? JSON.stringify(body) : undefined,
   });
 
   const raw = await response.text();
-  const data = raw ? JSON.parse(raw) : null;
+  let data = null;
+
+  try {
+    data = raw ? JSON.parse(raw) : null;
+  } catch {
+    data = raw || null;
+  }
 
   if (!response.ok) {
-    const message = data?.error || data?.message || `${response.status} ${response.statusText}`;
+    const message =
+      data?.error ||
+      data?.message ||
+      `${response.status} ${response.statusText}`;
+
     const error = new Error(message);
     error.status = response.status;
     error.payload = data;
@@ -24,164 +64,366 @@ async function request(path, options = {}) {
   return data;
 }
 
-const asArray = (value) => {
-  if (Array.isArray(value)) return value;
-  if (Array.isArray(value?.data)) return value.data;
-  return [];
-};
-
-const asObject = (value) => {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    if (value.data && typeof value.data === 'object' && !Array.isArray(value.data)) {
-      return value.data;
-    }
-    return value;
-  }
-  return null;
-};
-
-/** Manga Endpoints */
 export const mangaApi = {
-  async getAll({
-  page = 1,
-  limit = 24,
-  search,
-  sort,
-  order,
-  status,
-  favorites,
-  incomplete,
-  genre,
-} = {}) {
-  const params = new URLSearchParams({
-    page: String(page),
-    limit: String(limit),
-  });
-
-  if (search) params.set('search', search);
-  if (sort) params.set('sort', sort);
-  if (order) params.set('order', order);
-  if (status) params.set('status', status);
-  if (genre) params.set('genre', genre);
-  if (typeof favorites === 'boolean') params.set('favorites', String(favorites));
-  if (typeof incomplete === 'boolean') params.set('incomplete', String(incomplete));
-
-  const result = await request(`/manga?${params}`);
-  return {
-    data: asArray(result),
-    pagination: result?.pagination || null,
-  };
-},
-
-  async getById(id) {
-    const result = await request(`/manga/${id}`);
-    return asObject(result);
-  },
-
-  async toggleFavorite(id) {
-    return request(`/manga/${id}/favorite`, { method: 'PATCH' });
-  },
-
-  async searchManga(query, limit = 10) {
-    const params = new URLSearchParams({ q: query, limit: String(limit) });
-    const result = await request(`/manga/search?${params}`);
-    return asArray(result);
-  },
-
-  async importMangadex(mangadexId) {
-    const result = await request('/manga/import', {
-      method: 'POST',
-      body: JSON.stringify({ mangadexId })
+  getAll(params = {}, options = {}) {
+    return request(`/manga${buildQuery(params)}`, {
+      method: 'GET',
+      signal: options.signal,
     });
-    return asObject(result);
+  },
+
+  getById(id, options = {}) {
+    return request(`/manga/${id}`, {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  getLanguages(id, options = {}) {
+    return request(`/manga/${id}/languages`, {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  search(query, limit = 10, options = {}) {
+    return request(`/manga/search${buildQuery({ q: query, limit })}`, {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  importFromMangaDex(mangadexId, options = {}) {
+    return request('/manga/import', {
+      method: 'POST',
+      body: { mangadexId },
+      signal: options.signal,
+    });
+  },
+
+  create(payload, options = {}) {
+    return request('/manga', {
+      method: 'POST',
+      body: payload,
+      signal: options.signal,
+    });
+  },
+
+  update(id, payload, options = {}) {
+    return request(`/manga/${id}`, {
+      method: 'PUT',
+      body: payload,
+      signal: options.signal,
+    });
+  },
+
+  toggleFavorite(id, options = {}) {
+    return request(`/manga/${id}/favorite`, {
+      method: 'PATCH',
+      signal: options.signal,
+    });
+  },
+
+  delete(id, options = {}) {
+    return request(`/manga/${id}`, {
+      method: 'DELETE',
+      signal: options.signal,
+    });
+  },
+
+  getGenres(options = {}) {
+    return request('/manga/meta/genres', {
+      method: 'GET',
+      signal: options.signal,
+    });
   },
 };
 
-/** Chapter Endpoints */
 export const chapterApi = {
-  async getByManga(mangaId, sort = 'asc') {
-    const params = new URLSearchParams({ sort });
-    const result = await request(`/chapters/manga/${mangaId}?${params}`);
-    return asArray(result);
+  getByMangaId(mangaId, params = {}, options = {}) {
+    return request(`/chapters/manga/${mangaId}${buildQuery(params)}`, {
+      method: 'GET',
+      signal: options.signal,
+    });
   },
 
-  async getById(chapterId) {
-    const result = await request(`/chapters/${chapterId}`);
-    return asObject(result);
+  getById(id, options = {}) {
+    return request(`/chapters/${id}`, {
+      method: 'GET',
+      signal: options.signal,
+    });
   },
 
-  async markRead(chapterId) {
-    return request(`/chapters/${chapterId}/read`, { method: 'PATCH' });
+  create(payload, options = {}) {
+    return request('/chapters', {
+      method: 'POST',
+      body: payload,
+      signal: options.signal,
+    });
   },
 
-  async getNext(chapterId) {
-    const result = await request(`/chapters/${chapterId}/next`);
-    return asObject(result);
+  update(id, payload, options = {}) {
+    return request(`/chapters/${id}`, {
+      method: 'PUT',
+      body: payload,
+      signal: options.signal,
+    });
   },
 
-  async getPrev(chapterId) {
-    const result = await request(`/chapters/${chapterId}/prev`);
-    return asObject(result);
+  markRead(id, options = {}) {
+    return request(`/chapters/${id}/read`, {
+      method: 'PATCH',
+      signal: options.signal,
+    });
+  },
+
+  markUnread(id, options = {}) {
+    return request(`/chapters/${id}/unread`, {
+      method: 'PATCH',
+      signal: options.signal,
+    });
+  },
+
+  getNext(id, options = {}) {
+    return request(`/chapters/${id}/next`, {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  getPrev(id, options = {}) {
+    return request(`/chapters/${id}/prev`, {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  delete(id, options = {}) {
+    return request(`/chapters/${id}`, {
+      method: 'DELETE',
+      signal: options.signal,
+    });
   },
 };
 
-/** Page Endpoints */
 export const pageApi = {
-  async getByChapter(chapterId) {
-    const result = await request(`/pages/chapter/${chapterId}`);
-    return asArray(result);
+  getByChapterId(chapterId, options = {}) {
+    return request(`/pages/chapter/${chapterId}`, {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  // compatibilidad con Reader viejo
+  getByChapter(chapterId, options = {}) {
+    return request(`/pages/chapter/${chapterId}`, {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  getById(id, options = {}) {
+    return request(`/pages/${id}`, {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  create(payload, options = {}) {
+    return request('/pages', {
+      method: 'POST',
+      body: payload,
+      signal: options.signal,
+    });
+  },
+
+  bulkCreate(payload, options = {}) {
+    return request('/pages/bulk', {
+      method: 'POST',
+      body: payload,
+      signal: options.signal,
+    });
+  },
+
+  cachePage(id, options = {}) {
+    return request(`/pages/${id}/cache`, {
+      method: 'POST',
+      signal: options.signal,
+    });
+  },
+
+  getPrefetched(chapterId, count = 5, options = {}) {
+    return request(`/pages/prefetch/${chapterId}${buildQuery({ count })}`, {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  prefetch(chapterId, pages = [], options = {}) {
+    return request(`/pages/prefetch/${chapterId}`, {
+      method: 'POST',
+      body: { pages },
+      signal: options.signal,
+    });
+  },
+
+  delete(id, options = {}) {
+    return request(`/pages/${id}`, {
+      method: 'DELETE',
+      signal: options.signal,
+    });
   },
 };
 
-/** Library Endpoints */
 export const libraryApi = {
-  async getOverview() {
-    return request('/library/overview');
-  },
-
-  async startReading({ manga_id, chapter_id, page_number = 0 }) {
-    return request('/library/start-reading', {
-      method: 'POST',
-      body: JSON.stringify({ manga_id, chapter_id, page_number }),
+  getOverview(options = {}) {
+    return request('/library/overview', {
+      method: 'GET',
+      signal: options.signal,
     });
   },
 
-  async endReading({ session_id, chapter_id, end_page, duration_seconds }) {
-    return request('/library/end-reading', {
+  getRecent(params = {}, options = {}) {
+    return request(`/library/recent${buildQuery(params)}`, {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  getFavorites(params = {}, options = {}) {
+    return request(`/library/favorites${buildQuery(params)}`, {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  getIncomplete(params = {}, options = {}) {
+    return request(`/library/incomplete${buildQuery(params)}`, {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  getHistory(params = {}, options = {}) {
+    return request(`/library/history${buildQuery(params)}`, {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  getGenres(options = {}) {
+    return request('/library/genres', {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  // compatibilidad con Reader viejo
+  startReading(payload, options = {}) {
+    return request('/library/reading/start', {
       method: 'POST',
-      body: JSON.stringify({ session_id, chapter_id, end_page, duration_seconds }),
+      body: payload,
+      signal: options.signal,
+    });
+  },
+
+  endReading(payload, options = {}) {
+    return request('/library/reading/end', {
+      method: 'POST',
+      body: payload,
+      signal: options.signal,
     });
   },
 };
 
-/** Auth Endpoints */
-export const authApi = {
-  async login(data) {
-    return request('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  },
-
-  async logout() {
-    return request('/auth/logout', { method: 'POST' });
-  },
-
-  async me() {
-    return request('/auth/me');
-  },
-};
-
-/** Settings Endpoints */
 export const settingsApi = {
-  async getSettings() {
-    return request('/settings');
+  get(options = {}) {
+    return request('/settings', {
+      method: 'GET',
+      signal: options.signal,
+    });
   },
 
-  async updateSettings(data) {
+  update(payload, options = {}) {
     return request('/settings', {
       method: 'PUT',
-      body: JSON.stringify(data),
+      body: payload,
+      signal: options.signal,
+    });
+  },
+
+  // compatibilidad con Settings viejo
+  reset(options = {}) {
+    return request('/settings/reset', {
+      method: 'POST',
+      signal: options.signal,
     });
   },
 };
+
+export const statsApi = {
+  getOverview(options = {}) {
+    return request('/stats/overview', {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  getReadingStats(params = {}, options = {}) {
+    return request(`/stats/reading${buildQuery(params)}`, {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  getMangaStats(id, options = {}) {
+    return request(`/stats/manga/${id}`, {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+};
+
+export const authApi = {
+  login(payload, options = {}) {
+    return request('/auth/login', {
+      method: 'POST',
+      body: payload,
+      signal: options.signal,
+    });
+  },
+
+  register(payload, options = {}) {
+    return request('/auth/register', {
+      method: 'POST',
+      body: payload,
+      signal: options.signal,
+    });
+  },
+
+  me(options = {}) {
+    return request('/auth/me', {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  logout(options = {}) {
+    return request('/auth/logout', {
+      method: 'POST',
+      signal: options.signal,
+    });
+  },
+};
+
+const api = {
+  mangaApi,
+  chapterApi,
+  pageApi,
+  libraryApi,
+  settingsApi,
+  statsApi,
+  authApi,
+};
+
+export default api;

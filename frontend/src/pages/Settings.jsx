@@ -1,174 +1,188 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { motion } from 'framer-motion';
-import { 
-  User, 
-  Palette, 
-  BookOpen, 
-  HardDrive,
-  Moon,
-  Sun,
-  Monitor,
-  Save,
-  RotateCcw
-} from 'lucide-react';
-import { settingsApi, authApi } from '../services/api';
-import { useAuthStore } from '../stores/authStore';
-import { useThemeStore } from '../stores/themeStore.js';
+import { settingsApi } from '../services/api';
 import LoadingScreen from '../components/LoadingScreen';
-import clsx from 'clsx';
 
-const tabs = [
-  { id: 'profile', label: 'Profile', icon: User },
-  { id: 'reader', label: 'Reader', icon: BookOpen },
-  { id: 'appearance', label: 'Appearance', icon: Palette },
-  { id: 'storage', label: 'Storage', icon: HardDrive },
-];
+const DEFAULT_SETTINGS = {
+  theme: 'dark',
+  reader_mode: 'vertical',
+  preferred_language: 'es',
+  image_quality: 'high',
+  auto_mark_read: true,
+};
 
 export default function Settings() {
-  const [activeTab, setActiveTab] = useState('profile');
-  const { user } = useAuthStore();
   const queryClient = useQueryClient();
+  const [form, setForm] = useState(DEFAULT_SETTINGS);
+  const [savedMessage, setSavedMessage] = useState('');
 
-  const { data: preferences, isLoading } = useQuery({
-    queryKey: ['userPreferences'],
-    queryFn: () => settingsApi.get(),
+  const settingsQuery = useQuery({
+    queryKey: ['settings'],
+    queryFn: ({ signal }) => settingsApi.get({ signal }),
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: 1,
   });
 
-  // ✅ Versión correcta sin conflictos
-  const updateSettingsMutation = useMutation({
-    mutationFn: (data) => settingsApi.update(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['userPreferences'] });
-    },
-  });
-
-  const resetSettingsMutation = useMutation({
-    mutationFn: () => settingsApi.reset(),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['userPreferences'] });
-    },
-  });
-
-  // ✅ Sync del theme (esto estaba perdido en el merge)
   useEffect(() => {
-    if (preferences?.data?.theme) {
-      useThemeStore.getState().syncFromPreferences(preferences.data);
+    if (settingsQuery.data) {
+      setForm({
+        ...DEFAULT_SETTINGS,
+        ...settingsQuery.data,
+      });
     }
-  }, [preferences?.data?.theme]);
+  }, [settingsQuery.data]);
 
-  if (isLoading) {
-    return <LoadingScreen />;
-  }
-
-  const prefs = preferences?.data || {};
-
-  return (
-    <div className="max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold font-display mb-6">Settings</h1>
-
-      <div className="flex gap-6">
-        {/* Tabs */}
-        <nav className="w-48 flex-shrink-0">
-          <div className="space-y-1">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={clsx(
-                  'w-full flex items-center gap-3 px-4 py-3 rounded-xl text-left transition-all',
-                  activeTab === tab.id
-                    ? 'bg-primary-600/10 text-primary-400'
-                    : 'text-gray-400 hover:bg-dark-800 hover:text-gray-200'
-                )}
-              >
-                <tab.icon className="w-5 h-5" />
-                <span className="font-medium">{tab.label}</span>
-              </button>
-            ))}
-          </div>
-        </nav>
-
-        {/* Content */}
-        <div className="flex-1">
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="space-y-6"
-          >
-            {activeTab === 'profile' && (
-              <ProfileSettings user={user} />
-            )}
-            {activeTab === 'reader' && (
-              <ReaderSettings 
-                preferences={prefs}
-                onUpdate={(data) => updateSettingsMutation.mutate(data)}
-                onReset={() => resetSettingsMutation.mutate()}
-              />
-            )}
-            {activeTab === 'appearance' && (
-              <AppearanceSettings 
-                preferences={prefs}
-                onUpdate={(data) => updateSettingsMutation.mutate(data)}
-              />
-            )}
-            {activeTab === 'storage' && (
-              <StorageSettings />
-            )}
-          </motion.div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ProfileSettings({ user }) {
-  const [username, setUsername] = useState(user?.username || '');
-  const [email, setEmail] = useState(user?.email || '');
-
-  const updateProfileMutation = useMutation({
-    mutationFn: (data) => authApi.updateProfile(data),
+  const updateMutation = useMutation({
+    mutationFn: (payload) => settingsApi.update(payload),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['settings'], data);
+      setSavedMessage('Settings saved successfully.');
+      setTimeout(() => setSavedMessage(''), 2500);
+    },
   });
+
+  const handleChange = (key, value) => {
+    setForm((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    updateProfileMutation.mutate({ username, email });
+    setSavedMessage('');
+    updateMutation.mutate(form);
   };
 
+  if (settingsQuery.isLoading && !settingsQuery.data) {
+    return <LoadingScreen />;
+  }
+
+  if (settingsQuery.isError) {
+    return (
+      <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-200">
+        {settingsQuery.error?.message || 'Failed to load settings'}
+      </div>
+    );
+  }
+
   return (
-    <div className="bg-dark-900 rounded-2xl p-6 border border-dark-800">
-      <h2 className="text-lg font-semibold mb-6">Profile Settings</h2>
-      
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-sm text-gray-400 mb-2">Username</label>
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            className="w-full px-4 py-3 bg-dark-800 border border-dark-700 rounded-xl focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
-          />
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-white">Settings</h1>
+        <p className="text-sm text-zinc-400">
+          Configure your reading and app preferences.
+        </p>
+      </div>
+
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-6 rounded-2xl border border-white/10 bg-zinc-900/70 p-6"
+      >
+        <div className="grid gap-6 md:grid-cols-2">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-white">Theme</label>
+            <select
+              value={form.theme}
+              onChange={(e) => handleChange('theme', e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-zinc-950 px-4 py-3 text-white"
+            >
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+              <option value="system">System</option>
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-white">Reader Mode</label>
+            <select
+              value={form.reader_mode}
+              onChange={(e) => handleChange('reader_mode', e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-zinc-950 px-4 py-3 text-white"
+            >
+              <option value="vertical">Vertical</option>
+              <option value="paged">Paged</option>
+              <option value="webtoon">Webtoon</option>
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-white">
+              Preferred Language
+            </label>
+            <select
+              value={form.preferred_language}
+              onChange={(e) => handleChange('preferred_language', e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-zinc-950 px-4 py-3 text-white"
+            >
+              <option value="es">Español</option>
+              <option value="en">English</option>
+              <option value="pt-br">Português (BR)</option>
+              <option value="all">All</option>
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-white">Image Quality</label>
+            <select
+              value={form.image_quality}
+              onChange={(e) => handleChange('image_quality', e.target.value)}
+              className="w-full rounded-xl border border-white/10 bg-zinc-950 px-4 py-3 text-white"
+            >
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+          </div>
         </div>
 
-        <div>
-          <label className="block text-sm text-gray-400 mb-2">Email</label>
+        <label className="flex items-center gap-3 rounded-xl border border-white/10 bg-zinc-950 px-4 py-3">
           <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="w-full px-4 py-3 bg-dark-800 border border-dark-700 rounded-xl focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+            type="checkbox"
+            checked={Boolean(form.auto_mark_read)}
+            onChange={(e) => handleChange('auto_mark_read', e.target.checked)}
+            className="h-4 w-4 rounded border-white/20 bg-zinc-900"
           />
-        </div>
+          <span className="text-sm text-white">Auto mark chapter as read</span>
+        </label>
 
-        <button
-          type="submit"
-          disabled={updateProfileMutation.isPending}
-          className="flex items-center gap-2 px-6 py-3 bg-primary-600 hover:bg-primary-500 disabled:opacity-50 rounded-xl font-medium transition-colors"
-        >
-          <Save className="w-5 h-5" />
-          Save Changes
-        </button>
+        {updateMutation.isError && (
+          <div className="rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-sm text-red-200">
+            {updateMutation.error?.message || 'Failed to save settings'}
+          </div>
+        )}
+
+        {savedMessage && (
+          <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/10 p-3 text-sm text-emerald-200">
+            {savedMessage}
+          </div>
+        )}
+
+        <div className="flex items-center justify-end gap-3">
+          <button
+            type="button"
+            onClick={() =>
+              setForm({
+                ...DEFAULT_SETTINGS,
+                ...(settingsQuery.data || {}),
+              })
+            }
+            className="rounded-xl border border-white/10 bg-zinc-950 px-4 py-2.5 text-white"
+          >
+            Reset
+          </button>
+
+          <button
+            type="submit"
+            disabled={updateMutation.isPending}
+            className="rounded-xl bg-violet-600 px-4 py-2.5 text-white transition hover:bg-violet-500 disabled:opacity-50"
+          >
+            {updateMutation.isPending ? 'Saving…' : 'Save settings'}
+          </button>
+        </div>
       </form>
     </div>
   );

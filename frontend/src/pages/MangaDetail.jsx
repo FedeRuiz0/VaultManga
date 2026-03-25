@@ -1,358 +1,241 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { useParams, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { 
-  ArrowLeft, 
-  Heart, 
-  BookOpen, 
-  Play, 
-  MoreVertical,
-  ChevronRight,
-  Check,
-  Clock,
-  AlertTriangle
-} from 'lucide-react';
-import { mangaApi, chapterApi, libraryApi } from '../services/api';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Heart, ArrowLeft } from 'lucide-react';
+import { mangaApi, chapterApi } from '../services/api';
 import LoadingScreen from '../components/LoadingScreen';
-import clsx from 'clsx';
 
 export default function MangaDetail() {
   const { id } = useParams();
-  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+
   const [sortOrder, setSortOrder] = useState('asc');
+  const [chapterLanguage, setChapterLanguage] = useState('es');
 
-  const {
-    data: mangaData,
-    isLoading: mangaLoading,
-    isError: mangaError,
-    error: mangaErrorDetails,
-  } = useQuery({
+  const mangaQuery = useQuery({
     queryKey: ['manga', id],
-    queryFn: () => mangaApi.getById(id),
-    enabled: !!id,
+    queryFn: ({ signal }) => mangaApi.getById(id, { signal }),
+    enabled: Boolean(id),
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: 1,
   });
 
-  const {
-    data: chaptersData,
-    isLoading: chaptersLoading,
-    isError: chaptersError,
-    error: chaptersErrorDetails,
-  } = useQuery({
-    queryKey: ['chapters', id, sortOrder],
-    queryFn: () => chapterApi.getByManga(id, sortOrder),
-    enabled: !!id,
+  const languagesQuery = useQuery({
+    queryKey: ['mangaLanguages', id],
+    queryFn: ({ signal }) => mangaApi.getLanguages(id, { signal }),
+    enabled: Boolean(id),
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: 1,
   });
 
-  const manga = mangaData?.data || mangaData; 
-  const chapters = chaptersData?.data || chaptersData || [];
+  const chaptersQuery = useQuery({
+    queryKey: ['chapters', id, sortOrder, chapterLanguage],
+    queryFn: ({ signal }) =>
+      chapterApi.getByMangaId(
+        id,
+        {
+          sort: sortOrder,
+          language: chapterLanguage,
+        },
+        { signal }
+      ),
+    enabled: Boolean(id),
+    staleTime: 60_000,
+    gcTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: 1,
+    placeholderData: (previousData) => previousData,
+  });
 
-  const handleToggleFavorite = async () => {
-    await mangaApi.toggleFavorite(id);
-    // Refetch would be handled by react-query
-  };
+  const favoriteMutation = useMutation({
+    mutationFn: () => mangaApi.toggleFavorite(id),
+    onSuccess: (updatedManga) => {
+      queryClient.setQueryData(['manga', id], updatedManga);
+      queryClient.invalidateQueries({ queryKey: ['libraryManga'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboardRecentManga'] });
+      queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
+    },
+  });
 
-  const handleReadChapter = async (chapterId) => {
-    // Start reading session
-    await libraryApi.startReading({
-      manga_id: id,
-      chapter_id: chapterId,
-    });
-    navigate(`/reader/${chapterId}`);
-  };
+  useEffect(() => {
+    const available = languagesQuery.data || [];
+    if (!available.length) return;
 
-  const handleContinueReading = async () => {
-    // Find the first unread chapter or continue from last read
-    const nextChapter = chapters.find(c => !c.is_read) || chapters[0];
-    if (nextChapter) {
-      handleReadChapter(nextChapter.id);
+    const normalized = available.map((entry) => entry.language);
+    if (!normalized.includes(chapterLanguage) && chapterLanguage !== 'all') {
+      if (normalized.includes('es')) {
+        setChapterLanguage('es');
+      } else if (normalized.includes('en')) {
+        setChapterLanguage('en');
+      } else {
+        setChapterLanguage(normalized[0]);
+      }
     }
-  };
+  }, [languagesQuery.data, chapterLanguage]);
 
-  if (mangaLoading || chaptersLoading) {
+  const languageOptions = useMemo(() => {
+    const raw = languagesQuery.data || [];
+    return raw.map((entry) => ({
+      value: entry.language,
+      label: entry.language.toUpperCase(),
+      chapters: entry.chapters,
+    }));
+  }, [languagesQuery.data]);
+
+  if (mangaQuery.isLoading && !mangaQuery.data) {
     return <LoadingScreen />;
   }
 
-  if (mangaError || chaptersError) {
+  if (mangaQuery.isError) {
     return (
-      <div className="text-center py-16 space-y-3">
-        <h2 className="text-xl font-semibold">Unable to load manga details</h2>
-        <p className="text-gray-400">
-          {mangaErrorDetails?.message || chaptersErrorDetails?.message || 'Please try again.'}
-        </p>
-        <button
-          onClick={() => navigate('/library')}
-          className="mt-2 text-primary-400 hover:text-primary-300"
-        >
-          Back to Library
-        </button>
+      <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-200">
+        {mangaQuery.error?.message || 'Unable to load manga details'}
       </div>
     );
   }
 
-  if (!manga) {
-    return (
-      <div className="text-center py-16">
-        <h2 className="text-xl font-semibold">Manga not found</h2>
-        <button 
-          onClick={() => navigate('/library')}
-          className="mt-4 text-primary-400 hover:text-primary-300"
-        >
-          Back to Library
-        </button>
-      </div>
-    );
-  }
-
-  // Calculate progress
-  const readChapters = chapters.filter(c => c.is_read).length;
-  const totalChapters = chapters.length;
-  const progress = totalChapters > 0 ? Math.round((readChapters / totalChapters) * 100) : 0;
+  const manga = mangaQuery.data;
+  const chapters = chaptersQuery.data || [];
 
   return (
-    <div className="min-h-screen">
-      {/* Back button */}
-      <button 
-        onClick={() => navigate(-1)}
-        className="inline-flex items-center gap-2 text-gray-400 hover:text-white mb-6 transition-colors"
+    <div className="space-y-6">
+      <Link
+        to="/library"
+        className="inline-flex items-center gap-2 text-sm text-zinc-400 transition hover:text-white"
       >
-        <ArrowLeft className="w-5 h-5" />
-        Back
-      </button>
+        <ArrowLeft className="h-4 w-4" />
+        Back to library
+      </Link>
 
-      {/* Hero Section */}
-      <div className="relative mb-8">
-        {/* Background blur */}
-        {manga.cover_image && (
-          <div className="absolute inset-0 overflow-hidden rounded-2xl">
-            <div className="absolute inset-0 bg-gradient-to-t from-dark-950 via-dark-950/80 to-dark-950/40" />
-            <img 
-              src={manga.cover_image} 
-              alt=""
-              className="w-full h-full object-cover blur-3xl opacity-30 scale-110"
+      <div className="grid gap-6 lg:grid-cols-[260px_1fr]">
+        <div className="overflow-hidden rounded-2xl border border-white/10 bg-zinc-900">
+          <div className="aspect-[2/3] bg-zinc-800">
+            <img
+              src={manga.cover_image || '/placeholder-cover.jpg'}
+              alt={manga.title}
+              loading="lazy"
+              decoding="async"
+              onError={(e) => {
+                e.currentTarget.src = '/placeholder-cover.jpg';
+              }}
+              className="h-full w-full object-cover"
             />
           </div>
-        )}
+        </div>
 
-        <div className="relative flex flex-col md:flex-row gap-6">
-          {/* Cover */}
-          <div className="w-48 md:w-64 flex-shrink-0">
-            <div className="aspect-[3/4] rounded-xl overflow-hidden bg-dark-800 shadow-2xl">
-              {manga.cover_image ? (
-                <img 
-                  src={manga.cover_image} 
-                  alt={manga.title}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center">
-                  <BookOpen className="w-16 h-16 text-dark-600" />
-                </div>
-              )}
+        <div className="space-y-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1 className="text-3xl font-bold text-white">{manga.title}</h1>
+              <div className="mt-2 flex flex-wrap gap-2 text-sm text-zinc-400">
+                <span>{manga.status || 'unknown'}</span>
+                <span>•</span>
+                <span>{manga.year || '—'}</span>
+                <span>•</span>
+                <span>{manga.total_chapters || 0} chapters</span>
+              </div>
             </div>
+
+            <button
+              onClick={() => favoriteMutation.mutate()}
+              disabled={favoriteMutation.isPending}
+              className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-zinc-900 px-4 py-2.5 text-white transition hover:border-violet-500 disabled:opacity-50"
+            >
+              <Heart
+                className={`h-4 w-4 ${
+                  manga.is_favorite ? 'fill-current text-pink-400' : ''
+                }`}
+              />
+              {manga.is_favorite ? 'Favorited' : 'Favorite'}
+            </button>
           </div>
 
-          {/* Info */}
-          <div className="flex-1 pt-2">
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h1 className="text-3xl md:text-4xl font-bold font-display mb-2">
-                  {manga.title}
-                </h1>
-                {manga.alt_titles?.length > 0 && (
-                  <p className="text-gray-400 mb-4">
-                    {manga.alt_titles.slice(0, 3).join(' • ')}
-                  </p>
-                )}
-              </div>
-              <button
-                onClick={handleToggleFavorite}
-                className={clsx(
-                  'p-3 rounded-xl transition-all',
-                  manga.is_favorite 
-                    ? 'bg-accent-500/20 text-accent-400' 
-                    : 'bg-dark-800 text-gray-400 hover:bg-dark-700'
-                )}
-              >
-                <Heart className={clsx('w-6 h-6', manga.is_favorite && 'fill-current')} />
-              </button>
-            </div>
-
-            {/* Meta */}
-            <div className="flex flex-wrap gap-4 mb-6 text-sm">
-              {manga.author && (
-                <span className="text-gray-400">
-                  <span className="text-gray-500">Author:</span> {manga.author}
-                </span>
-              )}
-              {manga.artist && (
-                <span className="text-gray-400">
-                  <span className="text-gray-500">Artist:</span> {manga.artist}
-                </span>
-              )}
-              {manga.year && (
-                <span className="text-gray-400">
-                  <span className="text-gray-500">Year:</span> {manga.year}
-                </span>
-              )}
-              <span className={clsx(
-                'px-2 py-1 rounded-md text-xs font-medium',
-                manga.status === 'completed' ? 'bg-green-500/20 text-green-400' :
-                manga.status === 'ongoing' ? 'bg-blue-500/20 text-blue-400' :
-                'bg-yellow-500/20 text-yellow-400'
-              )}>
-                {manga.status}
-              </span>
-              {manga.is_incomplete && (
-                <span className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-amber-500/20 text-amber-400">
-                  <AlertTriangle className="w-3 h-3" />
-                  Incomplete
-                </span>
-              )}
-            </div>
-
-            {/* Genres */}
-            {manga.genre?.length > 0 && (
-              <div className="flex flex-wrap gap-2 mb-6">
-                {manga.genre.map((g) => (
-                  <span 
-                    key={g} 
-                    className="px-3 py-1 bg-dark-800 rounded-full text-sm text-gray-300"
-                  >
-                    {g}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Description */}
-            {manga.description && (
-              <p className="text-gray-300 mb-6 line-clamp-3">
+          {manga.description && (
+            <div className="rounded-2xl border border-white/10 bg-zinc-900/60 p-4">
+              <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-zinc-400">
+                Description
+              </h2>
+              <p className="whitespace-pre-line text-sm leading-6 text-zinc-200">
                 {manga.description}
               </p>
-            )}
-
-            {/* Progress */}
-            <div className="mb-6">
-              <div className="flex items-center justify-between text-sm mb-2">
-                <span className="text-gray-400">Reading Progress</span>
-                <span className="font-medium">{readChapters}/{totalChapters} chapters ({progress}%)</span>
-              </div>
-              <div className="h-2 bg-dark-800 rounded-full overflow-hidden">
-                <div 
-                  className="h-full bg-primary-500 rounded-full transition-all"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
             </div>
+          )}
 
-            {/* Actions */}
-            <div className="flex gap-3">
-              <button
-                onClick={handleContinueReading}
-                disabled={chapters.length === 0}
-                className="flex-1 inline-flex items-center justify-center gap-2 px-6 py-3 bg-primary-600 hover:bg-primary-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-xl font-medium transition-colors"
-              >
-                <Play className="w-5 h-5" />
-                {readChapters > 0 ? 'Continue Reading' : 'Start Reading'}
-              </button>
-              <button className="p-3 bg-dark-800 hover:bg-dark-700 rounded-xl transition-colors">
-                <MoreVertical className="w-5 h-5" />
-              </button>
-            </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <select
+              value={chapterLanguage}
+              onChange={(e) => setChapterLanguage(e.target.value)}
+              className="rounded-xl border border-white/10 bg-zinc-900 px-4 py-3 text-white"
+            >
+              {languageOptions.length === 0 ? (
+                <option value="es">ES</option>
+              ) : (
+                languageOptions.map((lang) => (
+                  <option key={lang.value} value={lang.value}>
+                    {lang.label} ({lang.chapters})
+                  </option>
+                ))
+              )}
+            </select>
+
+            <select
+              value={sortOrder}
+              onChange={(e) => setSortOrder(e.target.value)}
+              className="rounded-xl border border-white/10 bg-zinc-900 px-4 py-3 text-white"
+            >
+              <option value="asc">Oldest first</option>
+              <option value="desc">Newest first</option>
+            </select>
           </div>
+
+          {chaptersQuery.isFetching && (
+            <div className="text-sm text-zinc-500">Refreshing chapters…</div>
+          )}
+
+          {chaptersQuery.isError ? (
+            <div className="rounded-2xl border border-red-500/20 bg-red-500/10 p-4 text-red-200">
+              {chaptersQuery.error?.message || 'Failed to load chapters'}
+            </div>
+          ) : chapters.length === 0 ? (
+            <div className="rounded-2xl border border-white/10 bg-zinc-900/60 p-6 text-center text-zinc-400">
+              No chapters available for this language yet.
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-white/10 bg-zinc-900/60">
+              <div className="divide-y divide-white/5">
+                {chapters.map((chapter) => (
+                  <Link
+                    key={chapter.id}
+                    to={`/reader/${chapter.id}`}
+                    className="flex items-center justify-between gap-4 px-4 py-3 transition hover:bg-white/5"
+                  >
+                    <div>
+                      <div className="text-sm font-medium text-white">
+                        Chapter {chapter.chapter_number}
+                        {chapter.title ? ` — ${chapter.title}` : ''}
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500">
+                        {String(chapter.language || 'unknown').toUpperCase()}
+                      </div>
+                    </div>
+
+                    <div className="text-xs text-zinc-500">
+                      {chapter.total_pages || chapter.page_count || 0} pages
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
-
-      {/* Chapters List */}
-      <section>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-semibold font-display">Chapters</h2>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setSortOrder('asc')}
-              className={clsx(
-                'px-3 py-1.5 rounded-lg text-sm',
-                sortOrder === 'asc' ? 'bg-dark-800 text-white' : 'text-gray-400'
-              )}
-            >
-              ↑ Oldest
-            </button>
-            <button
-              onClick={() => setSortOrder('desc')}
-              className={clsx(
-                'px-3 py-1.5 rounded-lg text-sm',
-                sortOrder === 'desc' ? 'bg-dark-800 text-white' : 'text-gray-400'
-              )}
-            >
-              ↓ Newest
-            </button>
-          </div>
-        </div>
-
-        {chapters.length > 0 ? (
-          <div className="space-y-2">
-            {chapters.map((chapter, index) => (
-              <motion.div
-                key={chapter.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.02 }}
-                className={clsx(
-                  'flex items-center gap-4 p-4 rounded-xl border transition-all',
-                  chapter.is_read 
-                    ? 'bg-dark-900/50 border-dark-800' 
-                    : 'bg-dark-900 border-dark-800 hover:border-dark-700'
-                )}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3">
-                    <span className="text-gray-400 text-sm">
-                      Ch. {chapter.chapter_number}
-                    </span>
-                    {chapter.title && (
-                      <span className="text-gray-300 truncate">
-                        {chapter.title}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-4 mt-1 text-xs text-gray-500">
-                    <span>{chapter.page_count || 0} pages</span>
-                    {chapter.first_read_at && (
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        Read {new Date(chapter.first_read_at).toLocaleDateString()}
-                      </span>
-                    )}
-                    {chapter.read_count > 0 && (
-                      <span>Read {chapter.read_count}x</span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {chapter.is_read && (
-                    <span className="flex items-center gap-1 text-xs text-green-400">
-                      <Check className="w-4 h-4" />
-                    </span>
-                  )}
-                  <button
-                    onClick={() => handleReadChapter(chapter.id)}
-                    className="p-2 rounded-lg bg-dark-800 hover:bg-dark-700 transition-colors"
-                  >
-                    <Play className="w-5 h-5" />
-                  </button>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        ) : (
-          <div className="text-center py-12 bg-dark-900 rounded-xl">
-            <BookOpen className="w-12 h-12 text-gray-600 mx-auto mb-3" />
-            <p className="text-gray-400">No chapters found</p>
-          </div>
-        )}
-      </section>
     </div>
   );
 }

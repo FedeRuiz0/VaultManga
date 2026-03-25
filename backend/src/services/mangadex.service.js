@@ -38,15 +38,9 @@ function pickLocalizedText(data, preferred = 'en', fallback = '') {
   return first || fallback;
 }
 
-function buildCoverUrl(mangaId, includes = []) {
-  const cover = includes.find((item) => item.type === 'cover_art');
-  const fileName = cover?.attributes?.fileName;
-  if (!fileName) return null;
-  return `https://uploads.mangadex.org/covers/${mangaId}/${fileName}.512.jpg`;
-}
-
 async function request(config, logContext = {}) {
   const endpoint = `${config.method || 'GET'} ${config.url}`;
+
   console.log('[mangadex] request:start', {
     endpoint,
     mangaId: logContext.mangaId || null,
@@ -56,8 +50,13 @@ async function request(config, logContext = {}) {
 
   const response = await client.request(config);
 
-  const chaptersCount = Array.isArray(response.data?.data) ? response.data.data.length : 0;
-  const pagesCount = Array.isArray(response.data?.chapter?.data) ? response.data.chapter.data.length : 0;
+  const chaptersCount = Array.isArray(response.data?.data)
+    ? response.data.data.length
+    : 0;
+
+  const pagesCount = Array.isArray(response.data?.chapter?.data)
+    ? response.data.chapter.data.length
+    : 0;
 
   console.log('[mangadex] request:done', {
     endpoint,
@@ -78,7 +77,6 @@ async function searchMangaByTitle(title, limit = 10) {
     url: '/manga',
     params: {
       title,
-      cover: buildCoverUrlFromIncludes(item, data.includes || []),
       limit,
       includes: ['cover_art'],
     },
@@ -88,7 +86,8 @@ async function searchMangaByTitle(title, limit = 10) {
     id: item.id,
     title: pickLocalizedText(item.attributes?.title, 'en', 'Unknown title'),
     description: pickLocalizedText(item.attributes?.description, 'en', ''),
-    cover: buildCoverUrl(item.id, data.includes || []),
+    cover: buildCoverUrlFromIncludes(item, data.includes || []),
+    cover_image: buildCoverUrlFromIncludes(item, data.includes || []),
   }));
 }
 
@@ -110,12 +109,14 @@ async function getMangaById(mangaId) {
   if (!item) return null;
 
   const attributes = item.attributes || {};
+  const coverUrl = buildCoverUrlFromIncludes(item, data.includes || []);
 
   return {
     id: item.id,
     title: pickLocalizedText(attributes.title, 'en', 'Unknown title'),
     description: pickLocalizedText(attributes.description, 'en', ''),
-    cover: buildCoverUrl(item.id, data.includes || []),
+    cover: coverUrl,
+    cover_image: coverUrl,
     status: attributes.status || 'ongoing',
   };
 }
@@ -146,12 +147,20 @@ async function fetchPages(chapterId) {
   const files = payload?.chapter?.data;
 
   if (!baseUrl || !hash || !Array.isArray(files) || files.length === 0) {
-    console.log('[mangadex] fetchPages empty', { chapterId, pagesCount: 0 });
+    console.log('[mangadex] fetchPages empty', {
+      chapterId,
+      pagesCount: 0,
+    });
     return [];
   }
 
   const pages = files.map((filename) => `${baseUrl}/data/${hash}/${filename}`);
-  console.log('[mangadex] fetchPages done', { chapterId, pagesCount: pages.length });
+
+  console.log('[mangadex] fetchPages done', {
+    chapterId,
+    pagesCount: pages.length,
+  });
+
   return pages;
 }
 

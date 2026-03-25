@@ -10,9 +10,14 @@ import { useThemeStore } from './stores/themeStore.js';
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: 1,
+      staleTime: 60_000,
+      gcTime: 10 * 60_000,
       refetchOnWindowFocus: false,
-      staleTime: 5 * 60 * 1000, // 5 minutes
+      refetchOnReconnect: false,
+      retry: 1,
+    },
+    mutations: {
+      retry: 0,
     },
   },
 });
