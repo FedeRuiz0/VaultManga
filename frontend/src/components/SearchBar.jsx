@@ -1,20 +1,17 @@
-import { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion'
-import { Search, X, Clock } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
-import { mangaApi } from '../services/api.js';
+import { useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Clock3, Search, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import clsx from 'clsx';
+import { mangaApi } from '../services/api.js';
 
-/**
- * SearchBar - Connected to backend (MangaDex on-demand)
- */
 export default function SearchBar({
-  value,
+  value = '',
   onChange,
   onSearch,
   placeholder = 'Search manga...',
   recentSearches = [],
-  className
+  className,
 }) {
   const [isFocused, setIsFocused] = useState(false);
   const [localValue, setLocalValue] = useState(value);
@@ -25,40 +22,42 @@ export default function SearchBar({
   const debounceRef = useRef(null);
 
   useEffect(() => {
-    setLocalValue(value);
+    setLocalValue(value || '');
   }, [value]);
 
-  /**
-   * 🔥 FETCH A TU BACKEND
-   */
   const fetchSuggestions = async (query) => {
-    if (!query || query.length < 2) {setSuggestions([]);
-       return;
-      } try {setLoading(true); 
-        const results = await mangaApi.searchManga(query);
-        setSuggestions(results);
-      } catch (err) {console.error('Search error:', err);
-        setSuggestions([]);
-      } finally {setLoading(false);
-        
-      }};
+    if (!query || query.trim().length < 2) {
+      setSuggestions([]);
+      return;
+    }
 
-  /**
-   * 🔥 DEBOUNCE (SUPER IMPORTANTE)
-   */
+    try {
+      setLoading(true);
+      const response = await mangaApi.search(query.trim(), 6);
+      const items = Array.isArray(response) ? response : response?.data || [];
+      setSuggestions(items);
+    } catch (error) {
+      console.error('Search error:', error);
+      setSuggestions([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
     debounceRef.current = setTimeout(() => {
       fetchSuggestions(localValue);
-    }, 400);
+    }, 320);
 
     return () => clearTimeout(debounceRef.current);
   }, [localValue]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSearch?.(localValue);
+    if (!localValue.trim()) return;
+    onSearch?.(localValue.trim());
   };
 
   const handleClear = () => {
@@ -69,14 +68,15 @@ export default function SearchBar({
   };
 
   const showSuggestions =
-    isFocused && (localValue.length > 0 || recentSearches.length > 0);
+    isFocused &&
+    (localValue.trim().length > 0 || recentSearches.length > 0 || loading);
 
   return (
     <div className={clsx('relative', className)}>
       <form onSubmit={handleSubmit}>
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-          
+        <div className="search-shell relative flex items-center gap-3 px-4 py-3">
+          <Search className="h-4 w-4 text-muted" />
+
           <input
             ref={inputRef}
             type="text"
@@ -86,105 +86,90 @@ export default function SearchBar({
               onChange?.(e.target.value);
             }}
             onFocus={() => setIsFocused(true)}
-            onBlur={() => setTimeout(() => setIsFocused(false), 200)}
+            onBlur={() => setTimeout(() => setIsFocused(false), 160)}
             placeholder={placeholder}
-            className="w-full pl-12 pr-10 py-3 bg-dark-800 border border-dark-700 rounded-xl focus:outline-none focus:border-primary-500 focus:ring-1 focus:ring-primary-500 transition-all"
+            className="w-full bg-transparent text-sm text-[var(--text)] outline-none placeholder:text-muted"
           />
 
-          {localValue && (
+          {localValue ? (
             <button
               type="button"
               onClick={handleClear}
-              className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-dark-700 transition-colors"
+              className="text-muted transition hover:text-[var(--text)]"
+              aria-label="Clear search"
             >
-              <X className="w-4 h-4 text-gray-400" />
+              <X className="h-4 w-4" />
             </button>
-          )}
+          ) : null}
         </div>
       </form>
 
-      {/* DROPDOWN */}
       <AnimatePresence>
-        {showSuggestions && (
+        {showSuggestions ? (
           <motion.div
-            initial={{ opacity: 0, y: -10 }}
+            initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="absolute top-full left-0 right-0 mt-2 bg-dark-900 border border-dark-800 rounded-xl shadow-xl z-50 overflow-hidden"
+            exit={{ opacity: 0, y: 6 }}
+            className="panel-soft absolute left-0 right-0 top-[calc(100%+0.75rem)] z-30 overflow-hidden"
           >
-            {/* RECENT */}
-            {!localValue && recentSearches.length > 0 && (
-              <div className="p-2">
-                <div className="flex items-center gap-2 px-3 py-2 text-xs text-gray-500">
-                  <Clock className="w-3 h-3" />
-                  Recent Searches
-                </div>
+            {loading ? (
+              <div className="px-4 py-4 text-sm text-muted">Searching...</div>
+            ) : suggestions.length > 0 ? (
+              <div className="max-h-80 overflow-y-auto scrollbar-soft p-2">
+                {suggestions.map((item) => (
+                  <Link
+                    key={item.id}
+                    to={`/manga/${item.id}`}
+                    className="flex items-center gap-3 rounded-2xl px-3 py-3 transition hover:bg-[var(--surface-2)]"
+                  >
+                    <div className="h-12 w-10 overflow-hidden rounded-xl bg-[var(--surface-2)]">
+                      <img
+                        src={item.cover_image || item.cover || '/placeholder-cover.jpg'}
+                        alt={item.title}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                      />
+                    </div>
 
-                {recentSearches.slice(0, 5).map((item, index) => (
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-[var(--text)]">
+                        {item.title}
+                      </p>
+                      {item.description ? (
+                        <p className="mt-1 truncate text-xs text-muted">
+                          {item.description}
+                        </p>
+                      ) : null}
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            ) : recentSearches.length > 0 && !localValue ? (
+              <div className="p-2">
+                {recentSearches.map((item) => (
                   <button
-                    key={index}
+                    key={item}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
                       setLocalValue(item);
                       onChange?.(item);
                       onSearch?.(item);
                     }}
-                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-dark-800 transition-colors text-left"
+                    className="flex w-full items-center gap-3 rounded-2xl px-3 py-3 text-left transition hover:bg-[var(--surface-2)]"
                   >
-                    <Clock className="w-4 h-4 text-gray-600" />
-                    <span className="text-sm">{item}</span>
+                    <Clock3 className="h-4 w-4 text-muted" />
+                    <span className="text-sm text-[var(--text)]">{item}</span>
                   </button>
                 ))}
               </div>
-            )}
-
-            {/* LOADING */}
-            {loading && (
-              <div className="p-4 text-center text-gray-500 text-sm">
-                Searching...
-              </div>
-            )}
-
-            {/* RESULTS */}
-            {!loading && localValue && suggestions.length > 0 && (
-              <div className="p-2">
-                {suggestions.map((manga) => (
-                  <Link
-                    key={manga.id}
-                    to={`/manga/${manga.id}`}
-                    onClick={() => setIsFocused(false)}
-                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-dark-800 transition-colors"
-                  >
-                    <div className="w-10 h-14 rounded overflow-hidden bg-dark-800 flex-shrink-0">
-                      {manga.cover_image && (
-                        <img
-                          src={manga.cover_image}
-                          alt={manga.title}
-                          className="w-full h-full object-cover"
-                        />
-                      )}
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate">
-                        {manga.title}
-                      </p>
-                      <p className="text-xs text-gray-500 truncate">
-                        {manga.author || 'Unknown'}
-                      </p>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-
-            {/* EMPTY */}
-            {!loading && localValue && suggestions.length === 0 && (
-              <div className="p-4 text-center text-gray-500">
-                No results found for "{localValue}"
+            ) : (
+              <div className="px-4 py-4 text-sm text-muted">
+                No results found.
               </div>
             )}
           </motion.div>
-        )}
+        ) : null}
       </AnimatePresence>
     </div>
   );

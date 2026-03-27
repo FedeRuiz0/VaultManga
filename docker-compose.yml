@@ -51,7 +51,7 @@ services:
       SEED_GENRE_LIMIT: 20
       SEED_IMPORT_CHAPTERS: "true"
       SEED_REQUEST_DELAY_MS: 400
-      STARTUP_GENRES: action,romance,horror
+      STARTUP_GENRES: 
     ports:
       - "3001:3001"
     volumes:

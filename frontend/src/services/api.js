@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE || '/api';
+const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
 
 function buildQuery(params = {}) {
   const searchParams = new URLSearchParams();
@@ -214,7 +214,6 @@ export const pageApi = {
     });
   },
 
-  // compatibilidad con Reader viejo
   getByChapter(chapterId, options = {}) {
     return request(`/pages/chapter/${chapterId}`, {
       method: 'GET',
@@ -283,6 +282,13 @@ export const libraryApi = {
     });
   },
 
+  getRecentRead(options = {}) {
+  return request('/library/overview', {
+    method: 'GET',
+    signal: options.signal,
+  });
+},
+
   getRecent(params = {}, options = {}) {
     return request(`/library/recent${buildQuery(params)}`, {
       method: 'GET',
@@ -318,9 +324,16 @@ export const libraryApi = {
     });
   },
 
-  // compatibilidad con Reader viejo
   startReading(payload, options = {}) {
-    return request('/library/reading/start', {
+    return request('/library/start-reading', {
+      method: 'POST',
+      body: payload,
+      signal: options.signal,
+    });
+  },
+
+  progress(payload, options = {}) {
+    return request('/library/progress', {
       method: 'POST',
       body: payload,
       signal: options.signal,
@@ -328,9 +341,31 @@ export const libraryApi = {
   },
 
   endReading(payload, options = {}) {
-    return request('/library/reading/end', {
+    return request('/library/end-reading', {
       method: 'POST',
       body: payload,
+      signal: options.signal,
+    });
+  },
+
+  getBookmarks(params = {}, options = {}) {
+    return request(`/library/bookmarks${buildQuery(params)}`, {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  createBookmark(payload, options = {}) {
+    return request('/library/bookmarks', {
+      method: 'POST',
+      body: payload,
+      signal: options.signal,
+    });
+  },
+
+  deleteBookmark(id, options = {}) {
+    return request(`/library/bookmarks/${id}`, {
+      method: 'DELETE',
       signal: options.signal,
     });
   },
@@ -352,7 +387,6 @@ export const settingsApi = {
     });
   },
 
-  // compatibilidad con Settings viejo
   reset(options = {}) {
     return request('/settings/reset', {
       method: 'POST',

@@ -15,8 +15,8 @@ import settingsRoutes from './routes/settingsRoutes.js';
 import statsRoutes from './routes/statsRoutes.js';
 
 // Bots
-import runLibrarySeedBot from './bots/librarySeedBot.js';
-import runGenreSeedBot from './bots/genreSeedBot.js';
+import runLibrarySeedBot from './bots/librarySeedbot.js';
+import runGenreSeedBot from './bots/genreSeedbot.js';
 
 const app = express();
 const PORT = process.env.PORT || 3001;

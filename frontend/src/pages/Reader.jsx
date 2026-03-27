@@ -21,10 +21,27 @@ export default function Reader() {
   const containerRef = useRef(null);
   const pageRefs = useRef([]);
 
+  const readingSessionId = useRef(null);
+  const readingStartedAt = useRef(null);
+  const currentPageRef = useRef(0);
+
   const settings = {
     backgroundColor: '#0a0a0a',
     fitMode: 'width',
   };
+
+  useEffect(() => {
+    currentPageRef.current = currentPage;
+  }, [currentPage]);
+
+  const invalidateReadingQueries = useCallback(() => {
+  queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
+  queryClient.invalidateQueries({ queryKey: ['dashboardRecentRead'] });
+  queryClient.invalidateQueries({ queryKey: ['recentReadPage'] });
+  queryClient.invalidateQueries({ queryKey: ['libraryManga'] });
+  queryClient.invalidateQueries({ queryKey: ['manga'] });
+  queryClient.invalidateQueries({ queryKey: ['chapters'] });
+}, [queryClient]);
 
   // 📘 Chapter
   const {
@@ -34,9 +51,10 @@ export default function Reader() {
     error: chapterQueryError,
   } = useQuery({
     queryKey: ['chapter', chapterId],
-    queryFn: () => chapterApi.getById(chapterId),
+    queryFn: ({ signal }) => chapterApi.getById(chapterId, { signal }),
     enabled: Boolean(chapterId),
     staleTime: 60_000,
+    refetchOnWindowFocus: false,
   });
 
   // 📄 Pages
@@ -48,10 +66,10 @@ export default function Reader() {
     error: pagesQueryError,
   } = useQuery({
     queryKey: ['pages', chapterId],
-    queryFn: () => pageApi.getByChapter(chapterId),
-    
+    queryFn: ({ signal }) => pageApi.getByChapterId(chapterId, { signal }),
     enabled: Boolean(chapterId),
     staleTime: 2 * 60_000,
+    refetchOnWindowFocus: false,
   });
 
   const totalPages = pages.length;
@@ -59,22 +77,42 @@ export default function Reader() {
   // 📚 Mutations
   const startReadingMutation = useMutation({
     mutationFn: (data) => libraryApi.startReading(data),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['libraryOverview'] }),
+    onSuccess: (session) => {
+      readingSessionId.current = session?.id || null;
+      readingStartedAt.current = Date.now();
+      invalidateReadingQueries();
+    },
   });
 
   const endReadingMutation = useMutation({
     mutationFn: (data) => libraryApi.endReading(data),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: ['libraryOverview'] }),
+    onSuccess: () => {
+      invalidateReadingQueries();
+      readingSessionId.current = null;
+      readingStartedAt.current = null;
+    },
+  });
+
+  const markReadMutation = useMutation({
+    mutationFn: () => chapterApi.markRead(chapterId),
+    onSuccess: () => {
+      invalidateReadingQueries();
+    },
+    onError: () => {
+      hasMarkedRead.current = false;
+    },
   });
 
   // 🔄 Reset when chapter changes
   useEffect(() => {
     hasMarkedRead.current = false;
     hasAutoNavigated.current = false;
+    readingSessionId.current = null;
+    readingStartedAt.current = null;
+    currentPageRef.current = 0;
     setCurrentPage(0);
     setIsLoadingPage(true);
+    pageRefs.current = [];
   }, [chapterId]);
 
   // 📜 Scroll tracking
@@ -106,40 +144,46 @@ export default function Reader() {
     return () => container.removeEventListener('scroll', handleScroll);
   }, [handleScroll]);
 
-  // ▶ Start / End reading
+  // ▶ Start / End reading session
   useEffect(() => {
-    if (!chapter?.manga_id) return;
+    if (!chapter?.manga_id || !chapterId) return;
 
-    startReadingMutation.mutate({
-      manga_id: chapter.manga_id,
-      chapter_id: chapterId,
-      page_number: 0,
-    });
+    if (!readingSessionId.current) {
+      startReadingMutation.mutate({
+        manga_id: chapter.manga_id,
+        chapter_id: chapterId,
+        page_number: 0,
+      });
+    }
 
     return () => {
+      if (!readingSessionId.current) return;
+
+      const elapsedSeconds = readingStartedAt.current
+        ? Math.max(0, Math.round((Date.now() - readingStartedAt.current) / 1000))
+        : 0;
+
       endReadingMutation.mutate({
-        chapter_id: chapterId,
-        end_page: currentPage,
-        duration_seconds: 0,
+        session_id: readingSessionId.current,
+        end_page: currentPageRef.current,
+        duration_seconds: elapsedSeconds,
       });
     };
   }, [chapterId, chapter?.manga_id]);
 
-  // ✅ Mark as read
+  // ✅ Mark as read on last page
   useEffect(() => {
     if (
-      currentPage !== totalPages - 1 ||
       totalPages === 0 ||
+      currentPage !== totalPages - 1 ||
       hasMarkedRead.current
-    )
+    ) {
       return;
+    }
 
     hasMarkedRead.current = true;
-
-    chapterApi.markRead(chapterId).catch(() => {
-      hasMarkedRead.current = false;
-    });
-  }, [currentPage, totalPages, chapterId]);
+    markReadMutation.mutate();
+  }, [currentPage, totalPages, markReadMutation]);
 
   // 🚀 Prefetch next chapter
   useEffect(() => {
@@ -152,19 +196,19 @@ export default function Reader() {
 
         queryClient.prefetchQuery({
           queryKey: ['chapter', next.id],
-          queryFn: () => chapterApi.getById(next.id),
+          queryFn: ({ signal }) => chapterApi.getById(next.id, { signal }),
           staleTime: 60_000,
         });
 
         queryClient.prefetchQuery({
           queryKey: ['pages', next.id],
-          queryFn: () => pageApi.getByChapter(next.id),
+          queryFn: ({ signal }) => pageApi.getByChapterId(next.id, { signal }),
           staleTime: 2 * 60_000,
         });
       } catch (error) {
         console.warn('Next chapter prefetch failed', error);
       }
-    }, 2000);
+    }, 1500);
 
     return () => clearTimeout(timer);
   }, [chapterId, queryClient]);
@@ -176,8 +220,9 @@ export default function Reader() {
       currentPage !== totalPages - 1 ||
       isNavigatingNext ||
       hasAutoNavigated.current
-    )
+    ) {
       return;
+    }
 
     hasAutoNavigated.current = true;
 
@@ -190,6 +235,7 @@ export default function Reader() {
         navigate(`/reader/${next.id}`);
       } catch (error) {
         console.warn('Unable to auto-advance chapter', error);
+        hasAutoNavigated.current = false;
       } finally {
         setIsNavigatingNext(false);
       }
@@ -202,17 +248,25 @@ export default function Reader() {
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (['ArrowRight', 'ArrowDown', ' '].includes(e.key)) {
-        pageRefs.current[currentPage + 1]?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start',
-        });
+        const nextPage = pageRefs.current[currentPage + 1];
+        if (nextPage) {
+          e.preventDefault();
+          nextPage.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+          });
+        }
       }
 
       if (['ArrowLeft', 'ArrowUp'].includes(e.key)) {
-        pageRefs.current[currentPage - 1]?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'start',
-        });
+        const prevPage = pageRefs.current[currentPage - 1];
+        if (prevPage) {
+          e.preventDefault();
+          prevPage.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start',
+          });
+        }
       }
 
       if (e.key === 'Escape' && chapter?.manga_id) {
@@ -225,13 +279,15 @@ export default function Reader() {
   }, [currentPage, chapter, navigate]);
 
   // ⏳ Loading
-  if (chapterLoading || pagesLoading) return <LoadingScreen />;
+  if (chapterLoading || pagesLoading) {
+    return <LoadingScreen />;
+  }
 
   // ❌ Error
   if (chapterError || pagesError || !chapter) {
     return (
-      <div className="fixed inset-0 bg-black text-white flex items-center justify-center p-6">
-        <div className="text-center space-y-4">
+      <div className="fixed inset-0 flex items-center justify-center bg-black p-6 text-white">
+        <div className="space-y-4 text-center">
           <h2 className="text-xl">Unable to load chapter</h2>
           <p className="text-gray-400">
             {chapterQueryError?.message ||
@@ -240,9 +296,28 @@ export default function Reader() {
           </p>
           <button
             onClick={() => navigate(-1)}
-            className="px-4 py-2 bg-blue-600 rounded-lg"
+            className="rounded-lg bg-blue-600 px-4 py-2"
           >
             Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!pages.length) {
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-black p-6 text-white">
+        <div className="space-y-4 text-center">
+          <h2 className="text-xl">No pages available</h2>
+          <p className="text-gray-400">
+            This chapter has no pages to display yet.
+          </p>
+          <button
+            onClick={() => navigate(`/manga/${chapter.manga_id}`)}
+            className="rounded-lg bg-blue-600 px-4 py-2"
+          >
+            Back to manga
           </button>
         </div>
       </div>
@@ -257,14 +332,14 @@ export default function Reader() {
         className="h-screen overflow-y-auto scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         style={{ backgroundColor: settings.backgroundColor }}
       >
-        <div className="max-w-4xl mx-auto">
+        <div className="mx-auto max-w-4xl">
           {pages.map((page, index) => (
             <div
-              key={page.id || index}
+              key={page.id || `${chapterId}-${index}`}
               ref={(el) => {
                 pageRefs.current[index] = el;
               }}
-              className="min-h-screen flex justify-center"
+              className="flex min-h-screen justify-center"
             >
               <img
                 loading={index <= 1 ? 'eager' : 'lazy'}
@@ -272,10 +347,15 @@ export default function Reader() {
                 src={page.url || page.display_path || page.image_path}
                 alt={`Page ${index + 1}`}
                 className={clsx(
-                  'max-w-full h-auto',
+                  'h-auto max-w-full',
                   settings.fitMode === 'width' && 'w-full'
                 )}
-                onLoad={() => index === 0 && setIsLoadingPage(false)}
+                onLoad={() => {
+                  if (index === 0) setIsLoadingPage(false);
+                }}
+                onError={() => {
+                  if (index === 0) setIsLoadingPage(false);
+                }}
               />
             </div>
           ))}
@@ -285,15 +365,30 @@ export default function Reader() {
       <AnimatePresence>
         {(startReadingMutation.isPending ||
           endReadingMutation.isPending ||
+          markReadMutation.isPending ||
+          pagesFetching ||
           isNavigatingNext) && (
-          <motion.div className="absolute top-4 right-4 text-xs bg-black/80 px-3 py-2 rounded text-white">
-            {isNavigatingNext ? 'Opening next chapter...' : 'Syncing...'}
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="absolute right-4 top-4 rounded bg-black/80 px-3 py-2 text-xs text-white"
+          >
+            {isNavigatingNext
+              ? 'Opening next chapter...'
+              : pagesFetching
+              ? 'Refreshing pages...'
+              : 'Syncing...'}
           </motion.div>
         )}
 
         {isLoadingPage && (
-          <motion.div className="absolute inset-0 flex items-center justify-center bg-black">
-            <Loader2 className="w-8 h-8 animate-spin text-white" />
+          <motion.div
+            initial={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 flex items-center justify-center bg-black"
+          >
+            <Loader2 className="h-8 w-8 animate-spin text-white" />
           </motion.div>
         )}
       </AnimatePresence>

@@ -1,18 +1,11 @@
-import runGenreSeedBot from '../bots/genreSeedBot.js';
+import runLibrarySeedBot from '../bots/librarySeedBot.js';
 import { initDatabase } from '../db/database.js';
 import { initRedis } from '../db/redis.js';
 
-const genre = process.argv[2];
-const limit = Number(process.argv[3]) || 20;
+const limit = Number(process.argv[2]) || 30;
 
 async function main() {
   try {
-    if (!genre) {
-      console.error('❌ You must provide a genre.');
-      console.error('Example: node src/scripts/runGenreSeedBot.js horror 20');
-      process.exit(1);
-    }
-
     console.log('🔌 Connecting to database...');
     await initDatabase();
     console.log('✅ Database connected');
@@ -21,9 +14,9 @@ async function main() {
     await initRedis();
     console.log('✅ Redis connected');
 
-    console.log(`🚀 Running manual GENRE seed bot genre=${genre} limit=${limit}`);
+    console.log(`🚀 Running manual POPULAR seed bot (limit=${limit})`);
 
-    const result = await runGenreSeedBot(genre, {
+    const result = await runLibrarySeedBot({
       limit,
       importChapters: true,
       delayMs: 400,

@@ -12,24 +12,6 @@ const client = axios.create({
   },
 });
 
-function getRelationshipId(entity, type) {
-  const rel = (entity?.relationships || []).find((r) => r.type === type);
-  return rel?.id || null;
-}
-
-function buildCoverUrlFromIncludes(manga, includes = []) {
-  const coverRelationshipId = getRelationshipId(manga, 'cover_art');
-  if (!coverRelationshipId) return null;
-
-  const cover = includes.find(
-    (item) => item.type === 'cover_art' && item.id === coverRelationshipId
-  );
-
-  const fileName = cover?.attributes?.fileName;
-  if (!fileName) return null;
-
-  return `https://uploads.mangadex.org/covers/${manga.id}/${fileName}.512.jpg`;
-}
 
 function pickLocalizedText(data, preferred = 'en', fallback = '') {
   if (!data || typeof data !== 'object') return fallback;
@@ -69,6 +51,35 @@ async function request(config, logContext = {}) {
   return response.data;
 }
 
+async function fetchCoverByMangaId(mangaId) {
+  try {
+    const data = await request(
+      {
+        method: 'GET',
+        url: '/cover',
+        params: {
+          manga: [mangaId],
+          limit: 1,
+        },
+      },
+      { mangaId }
+    );
+
+    const cover = data?.data?.[0];
+    const fileName = cover?.attributes?.fileName;
+
+    if (!fileName) return null;
+
+    return `https://uploads.mangadex.org/covers/${mangaId}/${fileName}.512.jpg`;
+  } catch (error) {
+    console.warn('[mangadex] cover fetch failed', {
+      mangaId,
+      message: error.response?.data || error.message,
+    });
+    return null;
+  }
+}
+
 async function searchMangaByTitle(title, limit = 10) {
   if (!title || !String(title).trim()) return [];
 
@@ -78,17 +89,24 @@ async function searchMangaByTitle(title, limit = 10) {
     params: {
       title,
       limit,
-      includes: ['cover_art'],
     },
   });
 
-  return (data.data || []).map((item) => ({
-    id: item.id,
-    title: pickLocalizedText(item.attributes?.title, 'en', 'Unknown title'),
-    description: pickLocalizedText(item.attributes?.description, 'en', ''),
-    cover: buildCoverUrlFromIncludes(item, data.includes || []),
-    cover_image: buildCoverUrlFromIncludes(item, data.includes || []),
-  }));
+  const results = [];
+
+  for (const item of data.data || []) {
+    const coverUrl = await fetchCoverByMangaId(item.id);
+
+    results.push({
+      id: item.id,
+      title: pickLocalizedText(item.attributes?.title, 'en', 'Unknown title'),
+      description: pickLocalizedText(item.attributes?.description, 'en', ''),
+      cover: coverUrl,
+      cover_image: coverUrl,
+    });
+  }
+
+  return results;
 }
 
 async function getMangaById(mangaId) {
@@ -98,9 +116,6 @@ async function getMangaById(mangaId) {
     {
       method: 'GET',
       url: `/manga/${mangaId}`,
-      params: {
-        includes: ['cover_art'],
-      },
     },
     { mangaId }
   );
@@ -109,7 +124,7 @@ async function getMangaById(mangaId) {
   if (!item) return null;
 
   const attributes = item.attributes || {};
-  const coverUrl = buildCoverUrlFromIncludes(item, data.includes || []);
+  const coverUrl = await fetchCoverByMangaId(mangaId);
 
   return {
     id: item.id,

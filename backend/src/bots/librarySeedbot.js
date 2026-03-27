@@ -1,229 +1,216 @@
 import { query, queryOne } from '../db/database.js';
-import { mangaCache } from '../db/redis.js';
 import mangadexScraper from '../services/mangadexScraper.js';
 
-const DEFAULT_LIMIT = Number(process.env.SEED_POPULAR_LIMIT || 30);
-const DEFAULT_IMPORT_CHAPTERS = process.env.SEED_IMPORT_CHAPTERS !== 'false';
-const DEFAULT_DELAY_MS = Number(process.env.SEED_REQUEST_DELAY_MS || 400);
+function normalizeGenreForDb(genre) {
+  return JSON.stringify(Array.isArray(genre) ? genre : []);
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function normalizeGenreForDb(genre) {
-  if (Array.isArray(genre)) {
-    return JSON.stringify(genre);
-  }
-  return JSON.stringify([]);
-}
-
-async function invalidateLibraryCaches(mangaId) {
-  try {
-    if (mangaId) {
-      await mangaCache.invalidateManga(mangaId);
-      await mangaCache.invalidateChapters(mangaId);
-    }
-
-    if (typeof mangaCache.cacheDeletePattern === 'function') {
-      await mangaCache.cacheDeletePattern('manga:list:*');
-    }
-  } catch (error) {
-    console.warn('[library-seed-bot] cache invalidation warning:', error.message);
-  }
-}
-
-async function upsertManga(details) {
-  const sourcePath = `mangadex://${details.id}`;
-
-  const existing = await queryOne(
-    'SELECT id, source_path FROM manga WHERE source_path = $1 LIMIT 1',
-    [sourcePath]
-  );
-
-  if (existing) {
-    const updated = await queryOne(
-      `
-      UPDATE manga
-      SET
-        title = $2,
-        description = $3,
-        cover_image = COALESCE($4, cover_image)
-        genre = $5,
-        status = COALESCE($6, status),
-        year = COALESCE($7, year),
-        author = COALESCE($8, author),
-        artist = COALESCE($9, artist),
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $1
-      RETURNING *
-      `,
-      [
-        existing.id,
-        details.title,
-        details.description || '',
-        details.cover_image || null,
-        normalizeGenreForDb(details.genre),
-        details.status || 'ongoing',
-        details.year || null,
-        details.author || null,
-        details.artist || null,
-      ]
-    );
-
-    await invalidateLibraryCaches(updated.id);
-
-    return {
-      manga: updated,
-      created: false,
-      sourcePath,
-    };
-  }
-
-  const inserted = await queryOne(
-    `
-    INSERT INTO manga (
-      title,
-      description,
-      cover_image,
-      genre,
-      status,
-      year,
-      author,
-      artist,
-      source_path
-    )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-    RETURNING *
-    `,
-    [
-      details.title,
-      details.description || '',
-      details.cover_image || null,
-      normalizeGenreForDb(details.genre),
-      details.status || 'ongoing',
-      details.year || null,
-      details.author || null,
-      details.artist || null,
-      sourcePath,
-    ]
-  );
-
-  await invalidateLibraryCaches(inserted.id);
-
-  return {
-    manga: inserted,
-    created: true,
-    sourcePath,
-  };
-}
-
-async function getChapterCount(localMangaId) {
-  const row = await queryOne(
-    'SELECT COUNT(*)::int AS count FROM chapters WHERE manga_id = $1',
-    [localMangaId]
-  );
-
-  return row?.count || 0;
-}
-
-async function ensureChapters(localMangaId, mangadexId, enabled) {
-  if (!enabled) return 0;
-
-  const existingCount = await getChapterCount(localMangaId);
-  if (existingCount > 0) {
-    return 0;
-  }
-
-  const importedCount = await mangadexScraper.importChapters(localMangaId, mangadexId);
-  await invalidateLibraryCaches(localMangaId);
-  return importedCount;
-}
-
-async function seedSingleManga(remoteItem, { importChapters = DEFAULT_IMPORT_CHAPTERS } = {}) {
-  const details = await mangadexScraper.getMangaDetails(remoteItem.id);
-
-  if (!details) {
-    return {
-      ok: false,
-      mangadexId: remoteItem.id,
-      title: remoteItem?.title || 'Unknown title',
-      reason: 'details_not_found',
-    };
-  }
-
-  const { manga, created } = await upsertManga(details);
-  const importedChapters = await ensureChapters(manga.id, details.id, importChapters);
-
-  return {
-    ok: true,
-    localMangaId: manga.id,
-    mangadexId: details.id,
-    title: details.title,
-    created,
-    importedChapters,
-  };
-}
-
-export async function runLibrarySeedBot(options = {}) {
+export default async function runLibrarySeedBot(options = {}) {
   const {
-    limit = DEFAULT_LIMIT,
-    importChapters = DEFAULT_IMPORT_CHAPTERS,
-    delayMs = DEFAULT_DELAY_MS,
+    limit = 30,
+    importChapters = true,
+    delayMs = 400,
+    batchSize = 50,
+    maxRounds = 20,
   } = options;
 
   console.log(
     `[library-seed-bot] starting limit=${limit} importChapters=${importChapters} delayMs=${delayMs}`
   );
 
-  const candidates = await mangadexScraper.getPopularManga(limit);
-  const results = [];
+  let offset = 0;
+  let round = 0;
 
-  for (const item of candidates) {
-    try {
-      const result = await seedSingleManga(item, { importChapters });
-      results.push(result);
+  let attempted = 0;
+  let seeded = 0;
+  let created = 0;
+  let updated = 0;
+  let chaptersUpdated = 0;
+  let failed = 0;
 
-      if (result.ok) {
-        console.log(
-          `[library-seed-bot] seeded "${result.title}" local=${result.localMangaId} created=${result.created} chapters=${result.importedChapters}`
-        );
-      } else {
-        console.warn(
-          `[library-seed-bot] skipped mangadex=${result.mangadexId} reason=${result.reason}`
-        );
-      }
-    } catch (error) {
-      console.error(
-        `[library-seed-bot] failed mangadex=${item?.id || 'unknown'}: ${error.message}`
-      );
+  const seenMangadexIds = new Set();
 
-      results.push({
-        ok: false,
-        mangadexId: item?.id || null,
-        title: item?.title || 'Unknown title',
-        reason: error.message,
-      });
+  while (seeded < limit && round < maxRounds) {
+    round += 1;
+
+    const candidates = await mangadexScraper.getPopularManga(batchSize, offset);
+
+    if (!candidates.length) {
+      console.log('[library-seed-bot] no more popular candidates');
+      break;
     }
 
-    if (delayMs > 0) {
-      await sleep(delayMs);
+    offset += batchSize;
+
+    const uniqueCandidates = candidates.filter((item) => {
+      if (!item?.id || seenMangadexIds.has(item.id)) return false;
+      seenMangadexIds.add(item.id);
+      return true;
+    });
+
+    console.log(
+      `[library-seed-bot] round=${round} fetched=${candidates.length} unique=${uniqueCandidates.length} offset=${offset}`
+    );
+
+    for (const candidate of uniqueCandidates) {
+      if (seeded >= limit) break;
+
+      attempted += 1;
+
+      try {
+        const sourcePath = `mangadex://${candidate.id}`;
+
+        const existing = await queryOne(
+          `
+          SELECT id, source_path
+          FROM manga
+          WHERE source_path = $1
+          LIMIT 1
+          `,
+          [sourcePath]
+        );
+
+        const details = await mangadexScraper.getMangaDetails(candidate.id);
+        if (!details) {
+          failed += 1;
+          console.warn(`[library-seed-bot] skipped mangadex=${candidate.id}: no details`);
+          continue;
+        }
+
+        if (existing) {
+          // ✅ Ya existe: actualizar metadata básica y SOLO buscar capítulos nuevos
+          const updatedRow = await queryOne(
+            `
+            UPDATE manga
+            SET
+              title = $2,
+              description = $3,
+              cover_image = COALESCE($4, cover_image),
+              genre = $5,
+              status = COALESCE($6, status),
+              year = COALESCE($7, year),
+              author = COALESCE($8, author),
+              artist = COALESCE($9, artist),
+              updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            RETURNING *
+            `,
+            [
+              existing.id,
+              details.title,
+              details.description || '',
+              details.cover_image || null,
+              normalizeGenreForDb(details.genre),
+              details.status || 'ongoing',
+              details.year || null,
+              details.author || null,
+              details.artist || null,
+            ]
+          );
+
+          updated += 1;
+
+          if (importChapters) {
+            const importedCount = await mangadexScraper.importChapters(existing.id, details.id);
+            if (importedCount > 0) {
+              chaptersUpdated += importedCount;
+            }
+            console.log(
+              `[library-seed-bot] updated "${details.title}" local=${existing.id} created=false chapters=${importedCount}`
+            );
+          } else {
+            console.log(
+              `[library-seed-bot] updated "${details.title}" local=${existing.id} created=false chapters=skipped`
+            );
+          }
+
+          if (delayMs > 0) {
+            await sleep(delayMs);
+          }
+
+          continue;
+        }
+
+        // ✅ No existe: crear manga nuevo
+        const inserted = await queryOne(
+          `
+          INSERT INTO manga (
+            id,
+            title,
+            description,
+            cover_image,
+            genre,
+            status,
+            year,
+            author,
+            artist,
+            source_path
+          )
+          VALUES (
+            gen_random_uuid(),
+            $1, $2, $3, $4, $5, $6, $7, $8, $9
+          )
+          RETURNING id
+          `,
+          [
+            details.title,
+            details.description || '',
+            details.cover_image || null,
+            normalizeGenreForDb(details.genre),
+            details.status || 'ongoing',
+            details.year || null,
+            details.author || null,
+            details.artist || null,
+            sourcePath,
+          ]
+        );
+
+        if (!inserted?.id) {
+          failed += 1;
+          console.warn(`[library-seed-bot] insert failed mangadex=${candidate.id}`);
+          continue;
+        }
+
+        created += 1;
+        seeded += 1;
+
+        let importedCount = 0;
+        if (importChapters) {
+          importedCount = await mangadexScraper.importChapters(inserted.id, details.id);
+        }
+
+        console.log(
+          `[library-seed-bot] seeded "${details.title}" local=${inserted.id} created=true chapters=${importedCount}`
+        );
+
+        if (delayMs > 0) {
+          await sleep(delayMs);
+        }
+      } catch (error) {
+        failed += 1;
+        console.error(
+          `[library-seed-bot] failed mangadex=${candidate.id}: ${error.message}`
+        );
+      }
     }
   }
 
-  const summary = {
-    attempted: results.length,
-    seeded: results.filter((r) => r.ok).length,
-    created: results.filter((r) => r.ok && r.created).length,
-    updated: results.filter((r) => r.ok && !r.created).length,
-    failed: results.filter((r) => !r.ok).length,
-    results,
+  const result = {
+    attempted,
+    seeded,
+    created,
+    updated,
+    chaptersUpdated,
+    failed,
   };
 
   console.log(
-    `[library-seed-bot] finished attempted=${summary.attempted} seeded=${summary.seeded} created=${summary.created} updated=${summary.updated} failed=${summary.failed}`
+    `[library-seed-bot] finished attempted=${attempted} seeded=${seeded} created=${created} updated=${updated} chaptersUpdated=${chaptersUpdated} failed=${failed}`
   );
 
-  return summary;
+  return result;
 }
-
-export default runLibrarySeedBot;

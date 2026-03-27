@@ -1,31 +1,36 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Home, 
-  Library, 
-  BookOpen, 
-  Settings, 
-  Menu, 
-  X,
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+  Bell,
+  BookOpen,
+  ChevronLeft,
+  Home,
+  Library,
   LogOut,
+  Menu,
   Moon,
-  Sun
+  Search,
+  Settings,
+  Sparkles,
+  Sun,
+  X,
 } from 'lucide-react';
+import clsx from 'clsx';
 import { useAuthStore } from '../stores/authStore';
 import { useThemeToggle } from '../stores/themeStore.js';
 import SearchBar from './SearchBar.jsx';
-import clsx from 'clsx';
 
 const navItems = [
-  { path: '/', icon: Home, label: 'Dashboard' },
+  { path: '/', icon: Home, label: 'Home' },
   { path: '/library', icon: Library, label: 'Library' },
+  { path: '/library/history', icon: BookOpen, label: 'History' },
   { path: '/settings', icon: Settings, label: 'Settings' },
 ];
 
 export default function Layout({ children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchValue, setSearchValue] = useState('');
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -34,6 +39,19 @@ export default function Layout({ children }) {
   const { toggleTheme, effectiveTheme } = useThemeToggle();
 
   const isReaderRoute = location.pathname.startsWith('/reader/');
+
+  const initials = useMemo(() => {
+    const source =
+      user?.username ||
+      user?.name ||
+      user?.email ||
+      'MV';
+
+    return String(source)
+      .trim()
+      .slice(0, 2)
+      .toUpperCase();
+  }, [user]);
 
   if (isReaderRoute) {
     return <div className="min-h-screen bg-black">{children}</div>;
@@ -45,145 +63,173 @@ export default function Layout({ children }) {
   };
 
   const handleSearch = (query) => {
-    if (!query) return;
-    navigate(`/library?search=${encodeURIComponent(query)}`);
+    if (!query?.trim()) return;
+    navigate(`/library?search=${encodeURIComponent(query.trim())}`);
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-dark-950">
-      
-      {/* Mobile backdrop */}
+    <div className="app-shell min-h-screen">
       <AnimatePresence>
         {sidebarOpen && (
-          <motion.div
+          <motion.button
+            type="button"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden"
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm lg:hidden"
             onClick={() => setSidebarOpen(false)}
+            aria-label="Close sidebar backdrop"
           />
         )}
       </AnimatePresence>
 
-      {/* Sidebar */}
       <aside
         className={clsx(
-          'fixed top-0 left-0 z-50 h-full w-64 bg-dark-900 border-r border-dark-800 transform transition-transform duration-300 lg:translate-x-0',
+          'fixed inset-y-0 left-0 z-50 w-[280px] px-4 py-4 transition-transform duration-300 lg:translate-x-0',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
-        <div className="flex flex-col h-full">
-          
-          {/* Logo */}
-          <div className="flex items-center justify-between p-4 border-b border-dark-800">
+        <div className="glass-panel flex h-full flex-col p-4">
+          <div className="flex items-center justify-between px-2 pb-4">
             <Link to="/" className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center">
-                <BookOpen className="w-6 h-6 text-white" />
+              <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,var(--primary),var(--secondary))] text-white shadow-lg">
+                <BookOpen className="h-5 w-5" />
               </div>
-              <span className="text-xl font-bold font-display">MangaVault</span>
+              <div>
+                <div className="text-base font-semibold tracking-tight">MangaVault</div>
+                <div className="text-xs text-muted">Anime reader dashboard</div>
+              </div>
             </Link>
 
             <button
+              type="button"
+              className="icon-chip lg:hidden"
               onClick={() => setSidebarOpen(false)}
-              className="lg:hidden p-2 rounded-lg hover:bg-dark-800"
+              aria-label="Close menu"
             >
-              <X className="w-5 h-5" />
+              <X className="h-5 w-5" />
             </button>
           </div>
 
-          {/* Nav */}
-          <nav className="flex-1 p-4 space-y-2">
-            {navItems.map((item) => {
-              const isActive =
-                location.pathname === item.path ||
-                (item.path !== '/' && location.pathname.startsWith(item.path));
+          <div className="panel-soft mb-4 flex items-center gap-3 p-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,var(--primary-soft),var(--secondary-soft))] text-[var(--primary)]">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-[var(--text)]">
+                {user?.username || user?.name || 'Reader'}
+              </p>
+              <p className="truncate text-xs text-muted">
+                {user?.email || 'Welcome back'}
+              </p>
+            </div>
+          </div>
+
+          <nav className="space-y-1">
+            {navItems.map(({ path, icon: Icon, label }) => {
+              const active =
+                path === '/'
+                  ? location.pathname === '/'
+                  : location.pathname.startsWith(path);
 
               return (
                 <Link
-                  key={item.path}
-                  to={item.path}
-                  onClick={() => setSidebarOpen(false)}
+                  key={path}
+                  to={path}
                   className={clsx(
-                    'flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200',
-                    isActive
-                      ? 'bg-primary-500/10 text-primary-400'
-                      : 'text-gray-400 hover:bg-dark-800 hover:text-gray-200'
+                    'sidebar-link',
+                    active && 'sidebar-link-active'
                   )}
+                  onClick={() => setSidebarOpen(false)}
                 >
-                  <item.icon className="w-5 h-5" />
-                  <span className="font-medium">{item.label}</span>
+                  <Icon className="h-4 w-4" />
+                  <span>{label}</span>
                 </Link>
               );
             })}
           </nav>
 
-          {/* User */}
-          <div className="p-4 border-t border-dark-800">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-full bg-dark-700 flex items-center justify-center">
-                <span className="text-sm font-medium">
-                  {user?.username?.charAt(0).toUpperCase() || 'U'}
-                </span>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium truncate">{user?.username || 'User'}</p>
-                <p className="text-xs text-gray-500 truncate">{user?.email || ''}</p>
-              </div>
+          <div className="mt-6 panel-soft p-4">
+            <div className="text-xs font-medium uppercase tracking-[0.18em] text-muted">
+              Quick tip
             </div>
+            <p className="mt-2 text-sm text-muted">
+              Use search to import manga on demand, then continue reading from the dashboard.
+            </p>
+          </div>
 
+          <div className="mt-auto pt-4">
             <button
+              type="button"
+              className="sidebar-link w-full"
               onClick={handleLogout}
-              className="flex items-center gap-3 w-full px-4 py-2 rounded-lg text-gray-400 hover:bg-dark-800 hover:text-gray-200 transition-colors"
             >
-              <LogOut className="w-5 h-5" />
-              <span className="text-sm">Logout</span>
+              <LogOut className="h-4 w-4" />
+              <span>Log out</span>
             </button>
           </div>
         </div>
       </aside>
 
-      {/* Main */}
-      <div className="lg:pl-64">
-        
-        {/* Topbar */}
-        <header className="sticky top-0 z-30 bg-white/80 dark:bg-dark-950/80 backdrop-blur-xl border-b border-gray-200 dark:border-dark-800">
-          <div className="flex items-center justify-between px-4 py-3 lg:px-6">
-            
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => setSidebarOpen(true)}
-                className="lg:hidden p-2 rounded-lg hover:bg-dark-800"
-              >
-                <Menu className="w-5 h-5" />
-              </button>
+      <div className="lg:pl-[304px]">
+        <header className="sticky top-0 z-30 px-4 pt-4 lg:px-6">
+          <div className="glass-panel flex items-center gap-3 px-3 py-3 sm:px-4">
+            <button
+              type="button"
+              className="icon-chip lg:hidden"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open menu"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
 
-              {/* 🔥 SEARCH FIX */}
-              <div className="relative hidden sm:block w-64 lg:w-80">
-                <SearchBar
-                  value={searchQuery}
-                  onChange={setSearchQuery}
-                  onSearch={handleSearch}
-                />
-              </div>
+            <div className="hidden items-center gap-2 rounded-full px-3 py-2 text-sm text-muted sm:flex">
+              <Search className="h-4 w-4" />
+              <span>Search manga, authors, tags...</span>
             </div>
 
-            {/* Theme */}
-            <button 
+            <div className="flex-1">
+              <SearchBar
+                value={searchValue}
+                onChange={setSearchValue}
+                onSearch={handleSearch}
+                className="w-full"
+                placeholder="Search manga, authors, tags..."
+              />
+            </div>
+
+            <button
+              type="button"
+              className="icon-chip hidden sm:flex"
               onClick={toggleTheme}
-              className="p-2 rounded-lg hover:bg-dark-800 transition-colors"
+              aria-label="Toggle theme"
             >
               {effectiveTheme === 'dark' ? (
-                <Sun className="w-5 h-5" />
+                <Sun className="h-4 w-4" />
               ) : (
-                <Moon className="w-5 h-5" />
+                <Moon className="h-4 w-4" />
               )}
             </button>
 
+            <button type="button" className="icon-chip hidden sm:flex" aria-label="Notifications">
+              <Bell className="h-4 w-4" />
+            </button>
+
+            <button
+              type="button"
+              className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,var(--primary),var(--secondary))] text-white shadow-lg"
+              aria-label="Quick action"
+            >
+              <ChevronLeft className="h-4 w-4 rotate-180" />
+            </button>
+
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--surface)] text-sm font-semibold text-[var(--text)] shadow-sm">
+              {initials}
+            </div>
           </div>
         </header>
 
-        {/* Content */}
-        <main className="p-4 lg:p-6">
+        <main className="px-4 pb-6 pt-6 lg:px-6">
           {children}
         </main>
       </div>
