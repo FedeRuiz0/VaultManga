@@ -1,5 +1,5 @@
 import express from 'express';
-import { query, queryOne, queryAll } from '../db/database.js';
+import { query, queryAll, queryOne } from '../db/database.js';
 import { mangaCache } from '../db/redis.js';
 
 const router = express.Router();
@@ -22,42 +22,51 @@ router.get('/overview', async (req, res, next) => {
         m.id,
         m.title,
         m.cover_image,
-        rh.read_at as last_read_at,
+        m.last_read_at,
+        c.id AS chapter_id,
         c.chapter_number,
         c.read_progress
-      FROM reading_history rh
-      JOIN manga m ON rh.manga_id = m.id
-      JOIN chapters c ON rh.chapter_id = c.id
-      ORDER BY m.id, rh.read_at DESC
+      FROM manga m
+      JOIN chapters c ON c.manga_id = m.id
+      WHERE m.last_read_at IS NOT NULL
+      ORDER BY m.id, m.last_read_at DESC, c.last_read_at DESC NULLS LAST
       LIMIT 10
     `);
 
     const continueReading = await queryAll(`
-      SELECT DISTINCT ON (c.id)
-        m.id as manga_id,
-        m.title,
-        m.cover_image,
-        c.id as chapter_id,
-        c.chapter_number,
-        c.read_progress,
-        c.page_count
-      FROM manga m
-      JOIN chapters c ON m.id = c.manga_id
-      WHERE c.is_read = false AND c.read_progress > 0
-      ORDER BY c.id, c.last_read_at DESC
-      LIMIT 5
-    `);
+  SELECT *
+  FROM (
+    SELECT DISTINCT ON (m.id)
+      m.id as manga_id,
+      m.title,
+      m.cover_image,
+      c.id as chapter_id,
+      c.chapter_number,
+      c.read_progress,
+      c.page_count,
+      c.last_read_at
+    FROM manga m
+    JOIN chapters c ON m.id = c.manga_id
+    WHERE c.is_read = false
+      AND c.read_progress > 0
+    ORDER BY m.id, c.last_read_at DESC NULLS LAST, c.chapter_number DESC
+  ) AS latest_in_progress
+  ORDER BY latest_in_progress.last_read_at DESC NULLS LAST, latest_in_progress.manga_id ASC
+  LIMIT 5
+`);
 
     const recentAdditions = await queryAll(`
-      SELECT * FROM manga
-      ORDER BY created_at DESC
+      SELECT *
+      FROM manga
+      ORDER BY created_at DESC, id ASC
       LIMIT 10
     `);
 
     const favorites = await queryAll(`
-      SELECT * FROM manga
+      SELECT *
+      FROM manga
       WHERE is_favorite = true
-      ORDER BY updated_at DESC
+      ORDER BY updated_at DESC, id ASC
       LIMIT 10
     `);
 
@@ -90,7 +99,7 @@ router.get('/recent-read', async (req, res, next) => {
       LEFT JOIN chapters c ON c.manga_id = m.id
       WHERE m.last_read_at IS NOT NULL
       GROUP BY m.id
-      ORDER BY m.last_read_at DESC
+      ORDER BY m.last_read_at DESC NULLS LAST, m.id ASC
       LIMIT $1 OFFSET $2
       `,
       [limit, offset]
@@ -199,15 +208,13 @@ router.get('/incomplete', async (req, res, next) => {
   }
 });
 
-// Mark chapter as reading (start reading session)
+// Start reading session
 router.post('/start-reading', async (req, res, next) => {
   try {
     const { chapter_id, manga_id, page_number = 0 } = req.body;
 
     if (!chapter_id || !manga_id) {
-      return res.status(400).json({
-        error: 'Chapter ID and Manga ID are required',
-      });
+      return res.status(400).json({ error: 'Chapter ID and Manga ID are required' });
     }
 
     const session = await queryOne(
@@ -258,46 +265,13 @@ router.post('/start-reading', async (req, res, next) => {
   }
 });
 
-router.get('/recent-read', async (req, res, next) => {
-  try {
-    const page = Number(req.query.page || 1);
-    const limit = Number(req.query.limit || 24);
-    const offset = (page - 1) * limit;
-
-    const manga = await queryAll(`
-      SELECT *
-      FROM manga
-      WHERE last_read_at IS NOT NULL
-      ORDER BY last_read_at DESC
-      LIMIT $1 OFFSET $2
-    `, [limit, offset]);
-
-    const count = await queryOne(`
-      SELECT COUNT(*) FROM manga WHERE last_read_at IS NOT NULL
-    `);
-
-    res.json({
-      data: manga,
-      pagination: {
-        page,
-        limit,
-        total: parseInt(count.count, 10),
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Update reading progress while reading
+// Update reading progress
 router.post('/progress', async (req, res, next) => {
   try {
     const { manga_id, chapter_id, page_number = 0 } = req.body;
 
     if (!chapter_id || !manga_id) {
-      return res.status(400).json({
-        error: 'Chapter ID and Manga ID are required',
-      });
+      return res.status(400).json({ error: 'Chapter ID and Manga ID are required' });
     }
 
     await query(
@@ -319,6 +293,15 @@ router.post('/progress', async (req, res, next) => {
       WHERE id = $1
       `,
       [manga_id]
+    );
+
+    await query(
+      `
+      INSERT INTO reading_history (manga_id, chapter_id, page_number)
+      VALUES ($1, $2, $3)
+      ON CONFLICT (user_id, chapter_id, page_number) DO NOTHING
+      `,
+      [manga_id, chapter_id, page_number]
     );
 
     await mangaCache.invalidateManga(manga_id);
@@ -353,6 +336,19 @@ router.post('/end-reading', async (req, res, next) => {
 
     if (!session) {
       return res.status(404).json({ error: 'Session not found' });
+    }
+
+    if (session.chapter_id) {
+      await query(
+        `
+        UPDATE chapters SET
+          read_progress = GREATEST(read_progress, $2),
+          last_read_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+        `,
+        [session.chapter_id, end_page]
+      );
     }
 
     if (session.manga_id) {
@@ -406,17 +402,13 @@ router.get('/bookmarks', async (req, res, next) => {
     const { manga_id } = req.query;
 
     let queryText = `
-      SELECT 
-        b.*,
-        m.title as manga_title,
-        c.chapter_number
+      SELECT b.*, m.title as manga_title, c.chapter_number
       FROM bookmarks b
       JOIN manga m ON b.manga_id = m.id
       LEFT JOIN chapters c ON b.chapter_id = c.id
     `;
 
     const params = [];
-
     if (manga_id) {
       queryText += ' WHERE b.manga_id = $1';
       params.push(manga_id);

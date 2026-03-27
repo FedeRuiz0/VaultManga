@@ -17,6 +17,21 @@ function buildYearOptions() {
   return years;
 }
 
+function normalizeGenres(genre) {
+  if (Array.isArray(genre)) return genre;
+
+  if (typeof genre === 'string') {
+    try {
+      const parsed = JSON.parse(genre);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
 export default function Library() {
   const queryClient = useQueryClient();
 
@@ -48,15 +63,8 @@ export default function Library() {
     staleTime: 10 * 60_000,
     gcTime: 20 * 60_000,
     refetchOnWindowFocus: false,
-    retry: 1,
+    retry: 0,
   });
-
-  const availableGenres = useMemo(() => {
-    const raw = genresQuery.data;
-    if (Array.isArray(raw)) return raw;
-    if (Array.isArray(raw?.data)) return raw.data;
-    return [];
-  }, [genresQuery.data]);
 
   const queryKey = useMemo(
     () => [
@@ -159,6 +167,37 @@ export default function Library() {
     queryParams,
   ]);
 
+  const mangaList = useMemo(() => {
+    return mangaQuery.data?.data || [];
+  }, [mangaQuery.data]);
+
+  const pagination = useMemo(() => {
+    return mangaQuery.data?.pagination || null;
+  }, [mangaQuery.data]);
+
+  const availableGenres = useMemo(() => {
+    const apiGenresRaw = genresQuery.data;
+    const apiGenres = Array.isArray(apiGenresRaw)
+      ? apiGenresRaw
+      : Array.isArray(apiGenresRaw?.data)
+      ? apiGenresRaw.data
+      : [];
+
+    const genreSet = new Set();
+
+    apiGenres.forEach((genre) => {
+      if (genre) genreSet.add(genre);
+    });
+
+    mangaList.forEach((manga) => {
+      normalizeGenres(manga.genre).forEach((genre) => {
+        if (genre) genreSet.add(genre);
+      });
+    });
+
+    return Array.from(genreSet).sort((a, b) => a.localeCompare(b));
+  }, [genresQuery.data, mangaList]);
+
   const resetFilters = () => {
     setSearchInput('');
     setSearch('');
@@ -172,20 +211,21 @@ export default function Library() {
     setPage(1);
   };
 
-  if (mangaQuery.isLoading && !mangaQuery.data) {
+  const isInitialLoading = mangaQuery.isLoading && !mangaQuery.data;
+  const isError = mangaQuery.isError;
+  const errorMessage = mangaQuery.error?.message || 'Failed to load library';
+
+  if (isInitialLoading) {
     return <LoadingScreen />;
   }
 
-  if (mangaQuery.isError) {
+  if (isError) {
     return (
       <div className="panel-soft p-6 text-sm text-red-500">
-        {mangaQuery.error?.message || 'Failed to load library'}
+        {errorMessage}
       </div>
     );
   }
-
-  const mangaList = mangaQuery.data?.data || [];
-  const pagination = mangaQuery.data?.pagination || null;
 
   return (
     <div className="space-y-6">
@@ -331,6 +371,12 @@ export default function Library() {
 
       {mangaQuery.isFetching ? (
         <div className="text-sm text-muted">Refreshing library…</div>
+      ) : null}
+
+      {genresQuery.isError ? (
+        <div className="text-xs text-muted">
+          Genre list could not be loaded from metadata, using visible manga genres instead.
+        </div>
       ) : null}
 
       {mangaList.length === 0 ? (

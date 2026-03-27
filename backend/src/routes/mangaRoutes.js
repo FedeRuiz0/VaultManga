@@ -80,30 +80,60 @@ async function upsertMangaFromMangadex(mangadexId) {
   return manga;
 }
 
+// Get manga genres
+router.get('/meta/genres', async (req, res, next) => {
+  try {
+    const genres = await queryAll(`
+      SELECT DISTINCT genre
+      FROM manga, UNNEST(genre) AS genre
+      WHERE genre IS NOT NULL AND genre != ''
+      ORDER BY genre
+    `);
+
+    res.json(genres.map((g) => g.genre));
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Get all manga with pagination and filters
 router.get('/', async (req, res, next) => {
   try {
-    const {
-      page = 1,
-      limit = 20,
-      search = '',
-      title,
-      status,
-      genre,
-      sort = 'last_read_at',
-      order = 'DESC',
-      favorites = false,
-      incomplete = false
-    } = req.query;
-
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 20);
     const offset = (page - 1) * limit;
 
+    const search = req.query.search?.trim() || '';
+    const title = req.query.title?.trim();
+    const status = req.query.status?.trim();
+    const genre = req.query.genre?.trim();
+    const year = req.query.year ? Number(req.query.year) : null;
+    const sort = req.query.sort || 'last_read_at';
+    const order = String(req.query.order || 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    const favorites = toBoolean(req.query.favorites, false);
+    const incomplete = toBoolean(req.query.incomplete, false);
+
     if (title) {
-      const searchResults = await mangadexService.searchMangaByTitle(title, Number(limit) || 20);
+      const searchResults = await mangadexService.searchMangaByTitle(
+        title,
+        Number(limit) || 20
+      );
       return res.json({ data: searchResults, pagination: null });
     }
 
-    const cacheKey = { page, limit, search, status, genre, sort, order, favorites, incomplete };
+    const cacheKey = {
+      page,
+      limit,
+      search,
+      status,
+      genre,
+      year,
+      sort,
+      order,
+      favorites,
+      incomplete,
+    };
+
     const cached = await mangaCache.getMangaList(page, limit, cacheKey);
     if (cached) {
       return res.json(cached);
@@ -114,76 +144,106 @@ router.get('/', async (req, res, next) => {
     let paramIndex = 1;
 
     if (search) {
-      whereClause += ` AND (m.title ILIKE $${paramIndex} OR m.alt_titles && ARRAY[$${paramIndex}])`;
+      whereClause += ` AND (
+        m.title ILIKE $${paramIndex}
+        OR m.description ILIKE $${paramIndex}
+        OR m.author ILIKE $${paramIndex}
+        OR m.artist ILIKE $${paramIndex}
+      )`;
       params.push(`%${search}%`);
-      paramIndex++;
+      paramIndex += 1;
     }
 
     if (status) {
       whereClause += ` AND m.status = $${paramIndex}`;
       params.push(status);
-      paramIndex++;
+      paramIndex += 1;
     }
 
-    if (favorites === 'true') {
+    if (favorites) {
       whereClause += ' AND m.is_favorite = true';
     }
 
-    if (incomplete === 'true') {
+    if (incomplete) {
       whereClause += ' AND m.is_incomplete = true';
     }
 
     if (genre) {
-      whereClause += ` AND $${paramIndex} = ANY(m.genre)`;
-      params.push(genre);
-      paramIndex++;
+  whereClause += ` AND m.genre::jsonb ? $${paramIndex}`;
+  params.push(genre);
+  paramIndex += 1;
+}
+
+    if (year) {
+      whereClause += ` AND m.year = $${paramIndex}`;
+      params.push(year);
+      paramIndex += 1;
     }
 
     const allowedSortColumns = ['title', 'created_at', 'updated_at', 'last_read_at', 'year'];
-    const sortColumn = allowedSortColumns.includes(sort) ? `m.${sort}` : 'm.last_read_at';
-    const sortOrder = order.toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    const safeSort = allowedSortColumns.includes(sort) ? sort : 'last_read_at';
 
-    const countResult = await query(
-      `SELECT COUNT(*) FROM manga m ${whereClause}`,
+    const orderClauses = {
+      title: `m.title ${order}, m.id ASC`,
+      created_at: `m.created_at ${order}, m.id ASC`,
+      updated_at: `m.updated_at ${order}, m.id ASC`,
+      last_read_at: `m.last_read_at ${order} NULLS LAST, m.id ASC`,
+      year: `m.year ${order} NULLS LAST, m.id ASC`,
+    };
+
+    const orderClause = orderClauses[safeSort] || `m.last_read_at ${order} NULLS LAST, m.id ASC`;
+
+    const countResult = await queryOne(
+      `
+      SELECT COUNT(*)::int AS total
+      FROM manga m
+      ${whereClause}
+      `,
       params
     );
-    const total = parseInt(countResult.rows[0].count, 10);
+
+    const total = countResult?.total || 0;
 
     params.push(limit, offset);
-    const manga = await queryAll(`
+
+    const manga = await queryAll(
+      `
       SELECT
         m.*,
-        COALESCE(c.total_chapters, 0) as total_chapters,
-        COALESCE(c.read_chapters, 0) as read_chapters,
+        COALESCE(c.total_chapters, 0)::int AS total_chapters,
+        COALESCE(c.read_chapters, 0)::int AS read_chapters,
         ROUND(
           CASE
-            WHEN c.total_chapters > 0
-            THEN (c.read_chapters::numeric / c.total_chapters * 100)
+            WHEN COALESCE(c.total_chapters, 0) > 0
+            THEN (COALESCE(c.read_chapters, 0)::numeric / c.total_chapters * 100)
             ELSE 0
-          END, 1
-        ) as progress_percentage
+          END,
+          1
+        ) AS progress_percentage
       FROM manga m
       LEFT JOIN (
         SELECT
           manga_id,
-          COUNT(*) as total_chapters,
-          COUNT(*) FILTER (WHERE is_read) as read_chapters
+          COUNT(*) AS total_chapters,
+          COUNT(*) FILTER (WHERE is_read) AS read_chapters
         FROM chapters
         GROUP BY manga_id
       ) c ON m.id = c.manga_id
       ${whereClause}
-      ORDER BY ${sortColumn} ${sortOrder}
+      ORDER BY ${orderClause}
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
-    `, params);
+      `,
+      params
+    );
 
     const result = {
       data: manga,
       pagination: {
-        page: parseInt(page, 10),
-        limit: parseInt(limit, 10),
+        page,
+        limit,
         total,
-        totalPages: Math.ceil(total / limit)
-      }
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
     };
 
     await mangaCache.setMangaList(page, limit, cacheKey, result);
@@ -228,30 +288,33 @@ router.get('/:id', async (req, res, next) => {
       return res.json(cached);
     }
 
-    const manga = await queryOne(`
+    const manga = await queryOne(
+      `
       SELECT
         m.*,
-        COALESCE(c.total_chapters, 0) as total_chapters,
-        COALESCE(c.read_chapters, 0) as read_chapters,
+        COALESCE(c.total_chapters, 0)::int AS total_chapters,
+        COALESCE(c.read_chapters, 0)::int AS read_chapters,
         ROUND(
           CASE
-            WHEN c.total_chapters > 0
-            THEN (c.read_chapters::numeric / c.total_chapters * 100)
+            WHEN COALESCE(c.total_chapters, 0) > 0
+            THEN (COALESCE(c.read_chapters, 0)::numeric / c.total_chapters * 100)
             ELSE 0
           END, 1
-        ) as progress_percentage
+        ) AS progress_percentage
       FROM manga m
       LEFT JOIN (
         SELECT
           manga_id,
-          COUNT(*) as total_chapters,
-          COUNT(*) FILTER (WHERE is_read) as read_chapters
+          COUNT(*) AS total_chapters,
+          COUNT(*) FILTER (WHERE is_read) AS read_chapters
         FROM chapters
         WHERE manga_id = $1
         GROUP BY manga_id
       ) c ON m.id = c.manga_id
       WHERE m.id = $1
-    `, [id]);
+      `,
+      [id]
+    );
 
     if (!manga) {
       return res.status(404).json({ error: 'Manga not found' });
@@ -270,7 +333,7 @@ router.get('/:id/languages', async (req, res, next) => {
 
     const languages = await queryAll(
       `
-      SELECT LOWER(language) as language, COUNT(*)::int as chapters
+      SELECT LOWER(language) AS language, COUNT(*)::int AS chapters
       FROM chapters
       WHERE manga_id = $1
       GROUP BY LOWER(language)
@@ -298,22 +361,25 @@ router.post('/', async (req, res, next) => {
       artist,
       status = 'ongoing',
       year,
-      cover_image
+      cover_image,
     } = req.body;
 
     if (!title || !source_path) {
       return res.status(400).json({ error: 'Title and source path are required' });
     }
 
-    const manga = await queryOne(`
+    const manga = await queryOne(
+      `
       INSERT INTO manga (
         title, alt_titles, description, source_path, genre,
         author, artist, status, year, cover_image
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
       RETURNING *
-    `, [title, alt_titles, description, source_path, genre, author, artist, status, year, cover_image]);
+      `,
+      [title, alt_titles, description, source_path, genre, author, artist, status, year, cover_image]
+    );
 
-    scanMangaFolder(source_path).catch(err =>
+    scanMangaFolder(source_path).catch((err) =>
       console.error(`Failed to scan manga folder: ${source_path}`, err)
     );
 
@@ -338,10 +404,11 @@ router.put('/:id', async (req, res, next) => {
       year,
       cover_image,
       is_favorite,
-      is_incomplete
+      is_incomplete,
     } = req.body;
 
-    const manga = await queryOne(`
+    const manga = await queryOne(
+      `
       UPDATE manga SET
         title = COALESCE($2, title),
         alt_titles = COALESCE($3, alt_titles),
@@ -357,7 +424,9 @@ router.put('/:id', async (req, res, next) => {
         updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
       RETURNING *
-    `, [id, title, alt_titles, description, genre, author, artist, status, year, cover_image, is_favorite, is_incomplete]);
+      `,
+      [id, title, alt_titles, description, genre, author, artist, status, year, cover_image, is_favorite, is_incomplete]
+    );
 
     if (!manga) {
       return res.status(404).json({ error: 'Manga not found' });
@@ -390,13 +459,16 @@ router.patch('/:id/favorite', async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const manga = await queryOne(`
+    const manga = await queryOne(
+      `
       UPDATE manga SET
         is_favorite = NOT is_favorite,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
       RETURNING *
-    `, [id]);
+      `,
+      [id]
+    );
 
     if (!manga) {
       return res.status(404).json({ error: 'Manga not found' });
@@ -414,9 +486,12 @@ router.delete('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
 
-    const result = await query(`
+    const result = await query(
+      `
       DELETE FROM manga WHERE id = $1
-    `, [id]);
+      `,
+      [id]
+    );
 
     if (result.rowCount === 0) {
       return res.status(404).json({ error: 'Manga not found' });
@@ -424,21 +499,6 @@ router.delete('/:id', async (req, res, next) => {
 
     await mangaCache.invalidateManga(id);
     res.json({ success: true, message: 'Manga deleted successfully' });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Get manga genres
-router.get('/meta/genres', async (req, res, next) => {
-  try {
-    const genres = await queryAll(`
-      SELECT DISTINCT genre FROM manga, UNNEST(genre) as genre
-      WHERE genre IS NOT NULL AND genre != ''
-      ORDER BY genre
-    `);
-
-    res.json(genres.map(g => g.genre));
   } catch (error) {
     next(error);
   }
