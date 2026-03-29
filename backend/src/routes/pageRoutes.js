@@ -144,7 +144,14 @@ router.get('/prefetch/:chapterId', async (req, res, next) => {
     const { count = 5 } = req.query;
 
     const redis = getRedis();
-    const keys = await redis.keys(`prefetch:${chapterId}:*`);
+    const pages = [];
+
+for await (const key of redis.scanIterator({
+  MATCH: `prefetch:${chapterId}:*`,
+})) {
+  const data = await redis.get(key);
+  if (data) pages.push(JSON.parse(data));
+}
 
     const prefetched = [];
     for (const key of keys.slice(0, parseInt(count, 10))) {

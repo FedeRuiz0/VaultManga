@@ -80,7 +80,7 @@ async function fetchCoverByMangaId(mangaId) {
   }
 }
 
-async function searchMangaByTitle(title, limit = 10) {
+export async function searchMangaByTitle(title, limit = 10) {
   if (!title || !String(title).trim()) return [];
 
   const data = await request({
@@ -89,24 +89,20 @@ async function searchMangaByTitle(title, limit = 10) {
     params: {
       title,
       limit,
+      includes: ['cover_art'],
     },
   });
 
-  const results = [];
+  const items = data.data || [];
+  const includes = data.includes || [];
 
-  for (const item of data.data || []) {
-    const coverUrl = await fetchCoverByMangaId(item.id);
-
-    results.push({
-      id: item.id,
-      title: pickLocalizedText(item.attributes?.title, 'en', 'Unknown title'),
-      description: pickLocalizedText(item.attributes?.description, 'en', ''),
-      cover: coverUrl,
-      cover_image: coverUrl,
-    });
-  }
-
-  return results;
+  return items.map((item) => ({
+    id: item.id,
+    title: pickLocalizedText(item.attributes?.title, 'en', 'Unknown title'),
+    description: pickLocalizedText(item.attributes?.description, 'en', ''),
+    cover: buildCoverUrlFromIncludes(item, includes),
+    cover_image: buildCoverUrlFromIncludes(item, includes),
+  }));
 }
 
 async function getMangaById(mangaId) {

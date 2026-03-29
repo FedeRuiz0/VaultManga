@@ -11,55 +11,84 @@ const { Pool } = pg;
 
 let pool = null;
 
+function parseDatabaseUrl(databaseUrl) {
+  if (!databaseUrl) return null;
+
+  try {
+    const parsed = new URL(databaseUrl);
+
+    const isPostgresProtocol =
+      parsed.protocol === 'postgres:' ||
+      parsed.protocol === 'postgresql:';
+
+    if (!isPostgresProtocol) {
+      throw new Error(`Unsupported DATABASE_URL protocol: ${parsed.protocol}`);
+    }
+
+    return {
+      host: parsed.hostname || undefined,
+      port: parsed.port ? Number(parsed.port) : undefined,
+      database: parsed.pathname ? decodeURIComponent(parsed.pathname.replace(/^\//, '')) : undefined,
+      user: parsed.username ? decodeURIComponent(parsed.username) : undefined,
+      password: parsed.password ? decodeURIComponent(parsed.password) : undefined,
+      ssl:
+        parsed.searchParams.get('sslmode') === 'require'
+          ? { rejectUnauthorized: false }
+          : undefined,
+    };
+  } catch (error) {
+    console.error('Invalid DATABASE_URL:', error.message);
+    return null;
+  }
+}
+
 export function getPool() {
   if (!pool) {
-    // Support both DATABASE_URL and individual DB_* variables
     const databaseUrl = process.env.DATABASE_URL;
-    
-    let poolConfig;
-    if (databaseUrl) {
-      // Parse DATABASE_URL (postgresql://user:pass@host:port/db)
-      const match = databaseUrl.match(/postgresql:\/\/([^:]+):([^@]+)@([^:]+):(\d+)\/(.+)/);
-      if (match) {
-        poolConfig = {
-          host: match[3],
-          port: parseInt(match[4]),
-          database: match[5],
-          user: match[1],
-          password: match[2],
-        };
-      }
-    }
-    
-    pool = new Pool({
-      host: poolConfig?.host || process.env.DB_HOST || 'localhost',
-      port: poolConfig?.port || parseInt(process.env.DB_PORT) || 5432,
-      database: poolConfig?.database || process.env.DB_NAME || 'mangavault',
-      user: poolConfig?.user || process.env.DB_USER || 'mangavault',
-      password: poolConfig?.password || process.env.DB_PASSWORD || 'mangavault_password',
+    const parsedUrlConfig = parseDatabaseUrl(databaseUrl);
+
+    const poolConfig = {
+      host: parsedUrlConfig?.host || process.env.DB_HOST || 'localhost',
+      port: parsedUrlConfig?.port || Number(process.env.DB_PORT) || 5432,
+      database: parsedUrlConfig?.database || process.env.DB_NAME || 'mangavault',
+      user: parsedUrlConfig?.user || process.env.DB_USER || 'mangavault',
+      password:
+        parsedUrlConfig?.password || process.env.DB_PASSWORD || 'mangavault_password',
       max: 20,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
-    });
+      connectionTimeoutMillis: 5000,
+    };
+
+    if (parsedUrlConfig?.ssl) {
+      poolConfig.ssl = parsedUrlConfig.ssl;
+    }
+
+    pool = new Pool(poolConfig);
 
     pool.on('error', (err) => {
-      console.error('Unexpected database error:', err);
+      console.error('Unexpected database pool error:', err);
     });
   }
+
   return pool;
 }
 
 export async function query(text, params) {
   const client = await getPool().connect();
+
   try {
     const start = Date.now();
     const result = await client.query(text, params);
     const duration = Date.now() - start;
-    
+
     if (process.env.NODE_ENV === 'development') {
-      console.log('Executed query', { text: text.substring(0, 100), duration, rows: result.rowCount });
+      console.log('Executed query', {
+        text: String(text).substring(0, 140),
+        duration,
+        rows: result.rowCount ?? null,
+      });
     }
-    
+
     return result;
   } finally {
     client.release();
@@ -78,16 +107,14 @@ export async function queryAll(text, params) {
 
 export async function initDatabase() {
   try {
-    const pool = getPool();
-    
-    // Test connection
-    const client = await pool.connect();
+    const dbPool = getPool();
+
+    const client = await dbPool.connect();
     await client.query('SELECT NOW()');
     client.release();
-    
-    // Run migrations
+
     await runMigrations();
-    
+
     return true;
   } catch (error) {
     console.error('Database initialization error:', error);
@@ -121,7 +148,7 @@ async function runMigrations() {
     if (fs.existsSync(migrationsPath)) {
       const files = fs
         .readdirSync(migrationsPath)
-        .filter((f) => f.endsWith('.sql'))
+        .filter((file) => file.endsWith('.sql'))
         .sort();
 
       for (const file of files) {
@@ -135,6 +162,7 @@ async function runMigrations() {
     }
   } catch (error) {
     console.error('Migration error:', error);
+    throw error;
   }
 }
 
@@ -151,6 +179,5 @@ export default {
   queryAll,
   initDatabase,
   closeDatabase,
-  getPool
+  getPool,
 };
-

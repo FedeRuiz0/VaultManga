@@ -76,10 +76,18 @@ export async function cacheDelete(key) {
 
 export async function cacheDeletePattern(pattern) {
   try {
-    const keys = await getRedis().keys(pattern);
-    if (keys.length > 0) {
-      await getRedis().del(keys);
+    const client = getRedis();
+
+    const pipeline = client.multi();
+
+    for await (const key of client.scanIterator({
+      MATCH: pattern,
+      COUNT: 100,
+    })) {
+      pipeline.del(key);
     }
+
+    await pipeline.exec();
     return true;
   } catch (error) {
     console.error('Cache delete pattern error:', error);

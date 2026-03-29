@@ -4,6 +4,10 @@ import { authenticateToken } from './authRoutes.js';
 
 const router = express.Router();
 
+function isValidNumber(value, min, max) {
+  return typeof value === 'number' && value >= min && value <= max;
+}
+
 // Get user preferences
 router.get('/', authenticateToken, async (req, res, next) => {
   try {
@@ -52,7 +56,15 @@ router.put('/', authenticateToken, async (req, res, next) => {
       show_page_number,
       auto_advance,
       reading_goal
-    ]);
+    ]) 
+    if (
+  (reader_mode && !['vertical', 'horizontal'].includes(reader_mode)) ||
+  (page_fit && !['width', 'height'].includes(page_fit)) ||
+  (auto_scroll !== undefined && typeof auto_scroll !== 'boolean') ||
+  (scroll_speed && !isValidNumber(scroll_speed, 1, 100))
+) {
+  return res.status(400).json({ error: 'Invalid settings values' });
+};
 
     res.json(preferences);
   } catch (error) {

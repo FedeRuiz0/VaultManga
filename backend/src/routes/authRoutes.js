@@ -5,7 +5,11 @@ import { query, queryOne, queryAll } from '../db/database.js';
 
 const router = express.Router();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'mangavault_secret_key_change_in_production';
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET is required in production');
+}
+
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // Middleware to verify JWT
 export function authenticateToken(req, res, next) {

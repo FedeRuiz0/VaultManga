@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -10,11 +10,12 @@ import {
   Play,
 } from 'lucide-react';
 import clsx from 'clsx';
-import { mangaApi, chapterApi, libraryApi } from '../services/api';
+import { mangaApi, chapterApi } from '../services/api';
 import LoadingScreen from '../components/LoadingScreen';
 
 function normalizeGenres(genre) {
   if (Array.isArray(genre)) return genre;
+
   if (typeof genre === 'string') {
     try {
       const parsed = JSON.parse(genre);
@@ -23,12 +24,32 @@ function normalizeGenres(genre) {
       return [];
     }
   }
+
   return [];
+}
+
+function getPagesRead(chapter) {
+  const pageCount = Number(chapter?.page_count || 0);
+  const readProgress = Number(chapter?.read_progress || 0);
+
+  if (chapter?.is_read) return pageCount;
+  if (pageCount <= 0) return 0;
+
+  return Math.min(readProgress, pageCount);
+}
+
+function getChapterProgress(chapter) {
+  const pageCount = Number(chapter?.page_count || 0);
+  const pagesRead = getPagesRead(chapter);
+
+  if (pageCount <= 0) return 0;
+  return Math.min(100, Math.round((pagesRead / pageCount) * 100));
 }
 
 export default function MangaDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [sortOrder, setSortOrder] = useState('asc');
 
   const {
@@ -40,11 +61,12 @@ export default function MangaDetail() {
     queryKey: ['manga', id],
     queryFn: ({ signal }) => mangaApi.getById(id, { signal }),
     enabled: !!id,
-    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
 
   const {
-    data: chaptersData,
+    data: chaptersData = [],
     isLoading: chaptersLoading,
     isError: chaptersError,
     error: chaptersErrorDetails,
@@ -57,30 +79,66 @@ export default function MangaDetail() {
         { signal }
       ),
     enabled: !!id,
-    refetchOnWindowFocus: false,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
   });
 
   const manga = mangaData?.data || mangaData;
   const chapters = chaptersData?.data || chaptersData || [];
   const genres = normalizeGenres(manga?.genre);
 
+  const readChapters = useMemo(
+    () => chapters.filter((chapter) => chapter.is_read).length,
+    [chapters]
+  );
+
+  const totalChapters = chapters.length;
+
+  const totalPages = useMemo(
+    () =>
+      chapters.reduce(
+        (sum, chapter) => sum + Number(chapter?.page_count || 0),
+        0
+      ),
+    [chapters]
+  );
+
+  const totalPagesRead = useMemo(
+    () =>
+      chapters.reduce((sum, chapter) => sum + getPagesRead(chapter), 0),
+    [chapters]
+  );
+
+  const overallProgress =
+    totalPages > 0 ? Math.min(100, Math.round((totalPagesRead / totalPages) * 100)) : 0;
+
+  const nextChapterToRead = useMemo(() => {
+    const inProgress = chapters.find(
+      (chapter) => !chapter.is_read && Number(chapter.read_progress || 0) > 0
+    );
+    if (inProgress) return inProgress;
+
+    return chapters.find((chapter) => !chapter.is_read) || chapters[0] || null;
+  }, [chapters]);
+
   const handleToggleFavorite = async () => {
-    await mangaApi.toggleFavorite(id);
-    window.location.reload();
+    try {
+      await mangaApi.toggleFavorite(id);
+      queryClient.invalidateQueries({ queryKey: ['manga', id] });
+      queryClient.invalidateQueries({ queryKey: ['libraryManga'] });
+      queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
+    } catch (error) {
+      console.error('Failed to toggle favorite:', error);
+    }
   };
 
-  const handleReadChapter = async (chapterId) => {
-    await libraryApi.startReading({
-      manga_id: id,
-      chapter_id: chapterId,
-    });
+  const handleReadChapter = (chapterId) => {
     navigate(`/reader/${chapterId}`);
   };
 
-  const handleContinueReading = async () => {
-    const nextChapter = chapters.find((c) => !c.is_read) || chapters[0];
-    if (nextChapter) {
-      handleReadChapter(nextChapter.id);
+  const handleContinueReading = () => {
+    if (nextChapterToRead) {
+      handleReadChapter(nextChapterToRead.id);
     }
   };
 
@@ -112,7 +170,9 @@ export default function MangaDetail() {
   if (!manga) {
     return (
       <div className="py-16 text-center">
-        <h2 className="text-xl font-semibold text-[var(--text)]">Manga not found</h2>
+        <h2 className="text-xl font-semibold text-[var(--text)]">
+          Manga not found
+        </h2>
         <button
           onClick={() => navigate('/library')}
           className="mt-4 text-[var(--primary)] hover:opacity-80"
@@ -122,10 +182,6 @@ export default function MangaDetail() {
       </div>
     );
   }
-
-  const readChapters = chapters.filter((c) => c.is_read).length;
-  const totalChapters = chapters.length;
-  const progress = totalChapters > 0 ? Math.round((readChapters / totalChapters) * 100) : 0;
 
   return (
     <div className="min-h-screen space-y-8">
@@ -171,7 +227,7 @@ export default function MangaDetail() {
                   {manga.title}
                 </h1>
 
-                {manga.alt_titles?.length > 0 ? (
+                {Array.isArray(manga.alt_titles) && manga.alt_titles.length > 0 ? (
                   <p className="mt-2 text-sm text-muted">
                     {manga.alt_titles.slice(0, 3).join(' • ')}
                   </p>
@@ -187,26 +243,31 @@ export default function MangaDetail() {
                     : 'border-[var(--border)] bg-[var(--surface)] text-muted hover:text-[var(--text)]'
                 )}
               >
-                <Heart className={clsx('h-5 w-5', manga.is_favorite && 'fill-current')} />
+                <Heart
+                  className={clsx('h-5 w-5', manga.is_favorite && 'fill-current')}
+                />
               </button>
             </div>
 
             <div className="mt-5 flex flex-wrap gap-3 text-sm text-muted">
               {manga.author ? (
                 <span>
-                  <span className="font-medium text-[var(--text)]">Author:</span> {manga.author}
+                  <span className="font-medium text-[var(--text)]">Author:</span>{' '}
+                  {manga.author}
                 </span>
               ) : null}
 
               {manga.artist ? (
                 <span>
-                  <span className="font-medium text-[var(--text)]">Artist:</span> {manga.artist}
+                  <span className="font-medium text-[var(--text)]">Artist:</span>{' '}
+                  {manga.artist}
                 </span>
               ) : null}
 
               {manga.year ? (
                 <span>
-                  <span className="font-medium text-[var(--text)]">Year:</span> {manga.year}
+                  <span className="font-medium text-[var(--text)]">Year:</span>{' '}
+                  {manga.year}
                 </span>
               ) : null}
 
@@ -261,12 +322,12 @@ export default function MangaDetail() {
               <div className="mb-2 flex items-center justify-between text-sm">
                 <span className="text-muted">Reading Progress</span>
                 <span className="font-medium text-[var(--text)]">
-                  {readChapters}/{totalChapters} chapters ({progress}%)
+                  {readChapters}/{totalChapters} chapters completed • {totalPagesRead}/{totalPages} pages ({overallProgress}%)
                 </span>
               </div>
 
               <div className="progress-track">
-                <div className="progress-fill" style={{ width: `${progress}%` }} />
+                <div className="progress-fill" style={{ width: `${overallProgress}%` }} />
               </div>
             </div>
 
@@ -277,7 +338,7 @@ export default function MangaDetail() {
                 className="accent-button gap-2 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Play className="h-4 w-4" />
-                {readChapters > 0 ? 'Continue Reading' : 'Start Reading'}
+                {totalPagesRead > 0 ? 'Continue Reading' : 'Start Reading'}
               </button>
 
               <button className="ghost-button">
@@ -311,27 +372,74 @@ export default function MangaDetail() {
           </div>
         ) : (
           <div className="space-y-3">
-            {chapters.map((chapter) => (
-              <button
-                key={chapter.id}
-                onClick={() => handleReadChapter(chapter.id)}
-                className="flex w-full items-center justify-between rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-4 text-left transition hover:bg-[var(--surface-2)]"
-              >
-                <div>
-                  <div className="font-medium text-[var(--text)]">
-                    Chapter {chapter.chapter_number}
-                    {chapter.title ? ` — ${chapter.title}` : ''}
-                  </div>
-                  <div className="mt-1 text-xs text-muted">
-                    {chapter.language ? chapter.language.toUpperCase() : 'Unknown language'}
-                  </div>
-                </div>
+            {chapters.map((chapter) => {
+              const chapterProgress = getChapterProgress(chapter);
+              const pagesRead = getPagesRead(chapter);
+              const pageCount = Number(chapter?.page_count || 0);
 
-                <div className="text-xs text-muted">
-                  {chapter.is_read ? 'Read' : 'Unread'}
-                </div>
-              </button>
-            ))}
+              return (
+                <button
+                  key={chapter.id}
+                  onClick={() => handleReadChapter(chapter.id)}
+                  className="flex w-full items-center justify-between rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-4 text-left transition hover:bg-[var(--surface-2)]"
+                >
+                  <div className="min-w-0 flex-1 pr-4">
+                    <div className="font-medium text-[var(--text)]">
+                      Chapter {chapter.chapter_number}
+                      {chapter.title ? ` — ${chapter.title}` : ''}
+                    </div>
+
+                    <div className="mt-1 text-xs text-muted">
+                      {chapter.language
+                        ? chapter.language.toUpperCase()
+                        : 'Unknown language'}
+                    </div>
+
+                    <div className="mt-3">
+                      <div className="mb-1 flex items-center justify-between text-[11px] text-muted">
+                        <span>
+                          {chapter.is_read
+                            ? 'Completed'
+                            : chapterProgress > 0
+                            ? `${chapterProgress}% read`
+                            : 'Not started'}
+                        </span>
+
+                        {pageCount > 0 ? (
+                          <span>
+                            {pagesRead}/{pageCount} pages
+                          </span>
+                        ) : null}
+                      </div>
+
+                      <div className="progress-track h-1.5">
+                        <div
+                          className="progress-fill h-1.5"
+                          style={{ width: `${chapterProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div
+                    className={clsx(
+                      'shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em]',
+                      chapter.is_read
+                        ? 'bg-emerald-500/15 text-emerald-400'
+                        : chapterProgress > 0
+                        ? 'bg-[var(--primary-soft)] text-[var(--primary)]'
+                        : 'bg-[var(--surface-2)] text-muted'
+                    )}
+                  >
+                    {chapter.is_read
+                      ? 'Read'
+                      : chapterProgress > 0
+                      ? 'Reading'
+                      : 'Unread'}
+                  </div>
+                </button>
+              );
+            })}
           </div>
         )}
       </section>

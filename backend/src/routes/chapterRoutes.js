@@ -123,6 +123,51 @@ router.get('/:id', async (req, res, next) => {
   }
 });
 
+router.patch('/:id/read', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const chapter = await queryOne(
+      `
+      UPDATE chapters SET
+        is_read = true,
+        read_count = read_count + 1,
+        read_progress = CASE
+          WHEN COALESCE(page_count, 0) > 0 THEN page_count
+          ELSE read_progress
+        END,
+        first_read_at = COALESCE(first_read_at, CURRENT_TIMESTAMP),
+        last_read_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING *
+      `,
+      [id]
+    );
+
+    if (!chapter) {
+      return res.status(404).json({ error: 'Chapter not found' });
+    }
+
+    await query(
+      `
+      UPDATE manga SET
+        last_read_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      `,
+      [chapter.manga_id]
+    );
+
+    await mangaCache.invalidateChapters(chapter.manga_id);
+    await mangaCache.invalidateManga(chapter.manga_id);
+
+    res.json(chapter);
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Create chapter
 router.post('/', async (req, res, next) => {
   try {

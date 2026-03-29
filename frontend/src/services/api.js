@@ -282,12 +282,12 @@ export const libraryApi = {
     });
   },
 
-  getRecentRead(options = {}) {
-  return request('/library/overview', {
-    method: 'GET',
-    signal: options.signal,
-  });
-},
+  getRecentRead(params = {}, options = {}) {
+    return request(`/library/recent-read${buildQuery(params)}`, {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
 
   getRecent(params = {}, options = {}) {
     return request(`/library/recent${buildQuery(params)}`, {
@@ -324,27 +324,24 @@ export const libraryApi = {
     });
   },
 
-  startReading(payload, options = {}) {
+  startReading(data) {
     return request('/library/start-reading', {
       method: 'POST',
-      body: payload,
-      signal: options.signal,
+      body: JSON.stringify(data),
     });
   },
 
-  progress(payload, options = {}) {
+  progress(data) {
     return request('/library/progress', {
       method: 'POST',
-      body: payload,
-      signal: options.signal,
+      body: JSON.stringify(data),
     });
   },
 
-  endReading(payload, options = {}) {
+  endReading(data) {
     return request('/library/end-reading', {
       method: 'POST',
-      body: payload,
-      signal: options.signal,
+      body: JSON.stringify(data),
     });
   },
 

@@ -18,7 +18,7 @@ export const useAuthStore = create(
       login: async (email, password) => {
         set({ isLoading: true, error: null });
         try {
-          const response = await authApi.login({ email, password });
+          const response = await authApi.register({ email, password });
           // authApi.login ya devuelve JSON, asumimos { user, token }
           const { user, token } = response;
 
@@ -40,7 +40,7 @@ export const useAuthStore = create(
       register: async (username, email, password) => {
         set({ isLoading: true, error: null });
         try {
-          const response = await authApi.login({ username, email, password });
+          const response = await authApi.register({ username, email, password });
           const { user, token } = response;
 
           set({
