@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
+import http from 'http';
 
 import { initDatabase } from './db/database.js';
 import { initRedis } from './db/redis.js';
@@ -13,25 +14,23 @@ import libraryRoutes from './routes/libraryRoutes.js';
 import authRoutes from './routes/authRoutes.js';
 import settingsRoutes from './routes/settingsRoutes.js';
 import statsRoutes from './routes/statsRoutes.js';
+import recommendationRoutes from './routes/recommendationRoutes.js';
 
 // Bots
-import runLibrarySeedBot from './bots/librarySeedbot.js';
-import runGenreSeedBot from './bots/genreSeedbot.js';
+import runLibrarySeedBot from './bots/librarySeedBot.js';
+import runGenreSeedBot from './bots/genreSeedBot.js';
+
+import { initSocket } from './realtime/socket.js';
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const server = http.createServer(app);
+const io = initSocket(server);
 
-// ==============================
-// 🧠 Middleware
-// ==============================
+const PORT = process.env.PORT || 3001;
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(morgan('dev'));
-
-// ==============================
-// 📡 Routes
-// ==============================
 
 app.use('/api/v1/manga', mangaRoutes);
 app.use('/api/v1/chapters', chapterRoutes);
@@ -40,22 +39,16 @@ app.use('/api/v1/library', libraryRoutes);
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1/settings', settingsRoutes);
 app.use('/api/v1/stats', statsRoutes);
-
-// ==============================
-// ❤️ Health Check
-// ==============================
+app.use('/api/v1/recommendations', recommendationRoutes);
 
 app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     service: 'MangaVault API',
+    socket: Boolean(io),
     timestamp: new Date().toISOString(),
   });
 });
-
-// ==============================
-// ❌ Error Handler
-// ==============================
 
 app.use((err, req, res, next) => {
   console.error('[ERROR]', err);
@@ -64,10 +57,6 @@ app.use((err, req, res, next) => {
     error: err.message || 'Internal Server Error',
   });
 });
-
-// ==============================
-// 🚀 START SERVER
-// ==============================
 
 async function startServer() {
   try {
@@ -79,7 +68,7 @@ async function startServer() {
     await initRedis();
     console.log('✅ Redis connected');
 
-    app.listen(PORT, () => {
+    server.listen(PORT, () => {
       console.log(`🚀 MangaVault API running on port ${PORT}`);
       console.log(`📚 Environment: ${process.env.NODE_ENV || 'development'}`);
     });
@@ -87,14 +76,9 @@ async function startServer() {
     console.log('ENABLE_STARTUP_BOTS =', process.env.ENABLE_STARTUP_BOTS);
     console.log('STARTUP_GENRES =', process.env.STARTUP_GENRES);
 
-    // ==============================
-    // 🤖 STARTUP BOTS
-    // ==============================
-
     if (process.env.ENABLE_STARTUP_BOTS === 'true') {
       console.log('🤖 Starting startup bots...');
 
-      // 🔹 Bot 1: Popular seed
       runLibrarySeedBot({
         limit: Number(process.env.SEED_POPULAR_LIMIT || 30),
         importChapters: process.env.SEED_IMPORT_CHAPTERS !== 'false',
@@ -103,7 +87,6 @@ async function startServer() {
         console.error('[library-seed-bot] failed:', err.message);
       });
 
-      // 🔹 Bot 2: Genres
       const genres = (process.env.STARTUP_GENRES || '')
         .split(',')
         .map((g) => g.trim())

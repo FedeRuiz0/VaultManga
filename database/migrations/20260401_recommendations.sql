@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS recommendation_feedback (
+  id SERIAL PRIMARY KEY,
+  feedback_type VARCHAR(50) NOT NULL,
+  value TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

@@ -147,23 +147,29 @@ export default function Reader() {
 
   const totalPages = pages.length;
 
+  // read_progress ahora significa "páginas leídas"
   const savedPage = useMemo(() => {
     if (!chapter || totalPages === 0) return 0;
-    return clamp(
-      Number(chapter.read_progress || 0),
-      0,
-      Math.max(totalPages - 1, 0)
-    );
+
+    const pagesRead = Number(chapter.read_progress || 0);
+    const restoredIndex = Math.max(0, pagesRead - 1);
+
+    return clamp(restoredIndex, 0, Math.max(totalPages - 1, 0));
   }, [chapter, totalPages]);
 
   const progressPercent = useMemo(() => {
     if (totalPages <= 0) return 0;
+
     const pagesRead = chapter?.is_read
       ? totalPages
       : Math.min(Number(currentPage || 0) + 1, totalPages);
 
     return Math.min(100, Math.round((pagesRead / totalPages) * 100));
   }, [chapter?.is_read, currentPage, totalPages]);
+
+  const getPagesReadForStorage = useCallback(() => {
+    return Math.min(currentPageRef.current + 1, totalPages);
+  }, [totalPages]);
 
   const invalidateReadingQueries = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
@@ -296,14 +302,14 @@ export default function Reader() {
         startReadingMutation.mutate({
           manga_id: chapter.manga_id,
           chapter_id: chapterId,
-          page_number: savedPage,
+          page_number: savedPage + 1,
         });
       }
     } else {
       queueOfflineProgress({
         mangaId: chapter.manga_id,
         chapterId,
-        pageNumber: savedPage,
+        pageNumber: savedPage + 1,
         completed: false,
         durationSeconds: 0,
       });
@@ -317,20 +323,20 @@ export default function Reader() {
       if (navigator.onLine && readingSessionIdRef.current) {
         endReadingMutation.mutate({
           session_id: readingSessionIdRef.current,
-          end_page: currentPageRef.current,
+          end_page: getPagesReadForStorage(),
           duration_seconds: elapsedSeconds,
         });
       } else if (chapter?.manga_id) {
         queueOfflineProgress({
           mangaId: chapter.manga_id,
           chapterId,
-          pageNumber: currentPageRef.current,
+          pageNumber: getPagesReadForStorage(),
           completed: currentPageRef.current >= totalPages - 1,
           durationSeconds: elapsedSeconds,
         });
       }
     };
-  }, [chapter?.manga_id, chapterId, savedPage, totalPages]);
+  }, [chapter?.manga_id, chapterId, savedPage, totalPages, getPagesReadForStorage]);
 
   useEffect(() => {
     if (!chapter?.manga_id || !chapterId || totalPages === 0) return;
@@ -343,7 +349,7 @@ export default function Reader() {
       const payload = {
         manga_id: chapter.manga_id,
         chapter_id: chapterId,
-        page_number: currentPageRef.current,
+        page_number: getPagesReadForStorage(),
       };
 
       if (navigator.onLine) {
@@ -352,7 +358,7 @@ export default function Reader() {
         queueOfflineProgress({
           mangaId: chapter.manga_id,
           chapterId,
-          pageNumber: currentPageRef.current,
+          pageNumber: getPagesReadForStorage(),
           completed: false,
           durationSeconds: 0,
         });
@@ -364,7 +370,7 @@ export default function Reader() {
         clearTimeout(progressTimerRef.current);
       }
     };
-  }, [chapter?.manga_id, chapterId, currentPage, totalPages]);
+  }, [chapter?.manga_id, chapterId, currentPage, totalPages, getPagesReadForStorage]);
 
   useEffect(() => {
     if (
@@ -383,7 +389,7 @@ export default function Reader() {
         queueOfflineProgress({
           mangaId: chapter.manga_id,
           chapterId,
-          pageNumber: totalPages - 1,
+          pageNumber: totalPages,
           completed: true,
           durationSeconds: 0,
         });
@@ -426,7 +432,7 @@ export default function Reader() {
   const persistCurrentChapterProgress = async () => {
     if (!chapter?.manga_id || !chapterId) return;
 
-    const currentProgressPage = currentPageRef.current;
+    const currentProgressPage = getPagesReadForStorage();
 
     try {
       if (navigator.onLine) {
@@ -455,7 +461,7 @@ export default function Reader() {
           mangaId: chapter.manga_id,
           chapterId,
           pageNumber: currentProgressPage,
-          completed: currentProgressPage >= totalPages - 1,
+          completed: currentPageRef.current >= totalPages - 1,
           durationSeconds: readingStartedAtRef.current
             ? Math.max(0, Math.round((Date.now() - readingStartedAtRef.current) / 1000))
             : 0,

@@ -1,10 +1,14 @@
 import express from 'express';
 import { query, queryAll, queryOne } from '../db/database.js';
 import { mangaCache } from '../db/redis.js';
+import {
+  emitLibraryUpdated,
+  emitReadingUpdated,
+  emitRecommendationsUpdated,
+} from '../realtime/socket.js';
 
 const router = express.Router();
 
-// Get library overview (dashboard)
 router.get('/overview', async (req, res, next) => {
   try {
     const overview = await queryOne(`
@@ -34,26 +38,77 @@ router.get('/overview', async (req, res, next) => {
     `);
 
     const continueReading = await queryAll(`
-  SELECT *
-  FROM (
-    SELECT DISTINCT ON (m.id)
-      m.id as manga_id,
-      m.title,
-      m.cover_image,
-      c.id as chapter_id,
-      c.chapter_number,
-      c.read_progress,
-      c.page_count,
-      c.last_read_at
-    FROM manga m
-    JOIN chapters c ON m.id = c.manga_id
-    WHERE c.is_read = false
-      AND c.read_progress > 0
-    ORDER BY m.id, c.last_read_at DESC NULLS LAST, c.chapter_number DESC
-  ) AS latest_in_progress
-  ORDER BY latest_in_progress.last_read_at DESC NULLS LAST, latest_in_progress.manga_id ASC
-  LIMIT 5
-`);
+      WITH in_progress AS (
+        SELECT DISTINCT ON (m.id)
+          m.id AS manga_id,
+          m.title,
+          m.cover_image,
+          c.id AS chapter_id,
+          c.chapter_number,
+          c.read_progress,
+          c.page_count,
+          c.last_read_at,
+          false AS suggested_next,
+          CASE
+            WHEN COALESCE(c.page_count, 0) <= 0 THEN 0
+            ELSE ROUND(
+              (
+                LEAST(c.read_progress, c.page_count)::numeric
+                / c.page_count
+              ) * 100
+            )::int
+          END AS display_progress_percent
+        FROM manga m
+        JOIN chapters c ON c.manga_id = m.id
+        WHERE c.is_read = false
+          AND c.read_progress > 0
+        ORDER BY m.id, c.last_read_at DESC NULLS LAST, c.chapter_number DESC
+      ),
+      latest_read AS (
+        SELECT DISTINCT ON (c.manga_id)
+          c.manga_id,
+          c.chapter_number::numeric AS chapter_num,
+          c.last_read_at
+        FROM chapters c
+        WHERE c.is_read = true
+        ORDER BY c.manga_id, c.last_read_at DESC NULLS LAST, c.chapter_number::numeric DESC
+      ),
+      next_unread AS (
+        SELECT DISTINCT ON (m.id)
+          m.id AS manga_id,
+          m.title,
+          m.cover_image,
+          c.id AS chapter_id,
+          c.chapter_number,
+          0::int AS read_progress,
+          c.page_count,
+          lr.last_read_at,
+          true AS suggested_next,
+          0::int AS display_progress_percent
+        FROM latest_read lr
+        JOIN manga m ON m.id = lr.manga_id
+        JOIN chapters c
+          ON c.manga_id = lr.manga_id
+         AND c.is_read = false
+         AND c.chapter_number::numeric > lr.chapter_num
+        ORDER BY m.id, c.chapter_number::numeric ASC
+      ),
+      continue_candidates AS (
+        SELECT * FROM in_progress
+        UNION ALL
+        SELECT nu.*
+        FROM next_unread nu
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM in_progress ip
+          WHERE ip.manga_id = nu.manga_id
+        )
+      )
+      SELECT *
+      FROM continue_candidates
+      ORDER BY last_read_at DESC NULLS LAST, manga_id ASC
+      LIMIT 5
+    `);
 
     const recentAdditions = await queryAll(`
       SELECT *
@@ -82,7 +137,6 @@ router.get('/overview', async (req, res, next) => {
   }
 });
 
-// Get recently read manga with pagination
 router.get('/recent-read', async (req, res, next) => {
   try {
     const page = Number(req.query.page || 1);
@@ -128,87 +182,6 @@ router.get('/recent-read', async (req, res, next) => {
   }
 });
 
-// Get reading history
-router.get('/history', async (req, res, next) => {
-  try {
-    const page = Number(req.query.page || 1);
-    const limit = Number(req.query.limit || 50);
-    const offset = (page - 1) * limit;
-
-    const history = await queryAll(
-      `
-      SELECT 
-        rh.*,
-        m.title as manga_title,
-        m.cover_image,
-        c.chapter_number
-      FROM reading_history rh
-      JOIN manga m ON rh.manga_id = m.id
-      JOIN chapters c ON rh.chapter_id = c.id
-      ORDER BY rh.read_at DESC
-      LIMIT $1 OFFSET $2
-      `,
-      [limit, offset]
-    );
-
-    const countResult = await queryOne(`
-      SELECT COUNT(*) FROM reading_history
-    `);
-
-    res.json({
-      data: history,
-      pagination: {
-        page,
-        limit,
-        total: parseInt(countResult.count, 10),
-      },
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Get incomplete manga
-router.get('/incomplete', async (req, res, next) => {
-  try {
-    const incomplete = await queryAll(`
-      SELECT 
-        m.id,
-        m.title,
-        m.cover_image,
-        iml.issue_type,
-        iml.chapter_number,
-        iml.detected_at
-      FROM incomplete_manga_log iml
-      JOIN manga m ON iml.manga_id = m.id
-      ORDER BY iml.detected_at DESC
-    `);
-
-    const grouped = {};
-    for (const item of incomplete) {
-      if (!grouped[item.id]) {
-        grouped[item.id] = {
-          id: item.id,
-          title: item.title,
-          cover_image: item.cover_image,
-          issues: [],
-        };
-      }
-
-      grouped[item.id].issues.push({
-        chapter_number: item.chapter_number,
-        issue_type: item.issue_type,
-        detected_at: item.detected_at,
-      });
-    }
-
-    res.json(Object.values(grouped));
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Start reading session
 router.post('/start-reading', async (req, res, next) => {
   try {
     const { chapter_id, manga_id, page_number = 0 } = req.body;
@@ -259,13 +232,16 @@ router.post('/start-reading', async (req, res, next) => {
     await mangaCache.invalidateManga(manga_id);
     await mangaCache.invalidateChapters(manga_id);
 
+    emitReadingUpdated({ type: 'start-reading', manga_id, chapter_id });
+    emitLibraryUpdated({ type: 'overview-changed' });
+    emitRecommendationsUpdated({ type: 'profile-changed' });
+
     res.json(session);
   } catch (error) {
     next(error);
   }
 });
 
-// Update reading progress
 router.post('/progress', async (req, res, next) => {
   try {
     const { manga_id, chapter_id, page_number = 0 } = req.body;
@@ -307,13 +283,16 @@ router.post('/progress', async (req, res, next) => {
     await mangaCache.invalidateManga(manga_id);
     await mangaCache.invalidateChapters(manga_id);
 
+    emitReadingUpdated({ type: 'progress', manga_id, chapter_id, page_number });
+    emitLibraryUpdated({ type: 'overview-changed' });
+    emitRecommendationsUpdated({ type: 'profile-changed' });
+
     res.json({ success: true });
   } catch (error) {
     next(error);
   }
 });
 
-// End reading session
 router.post('/end-reading', async (req, res, next) => {
   try {
     const { session_id, end_page = 0, duration_seconds = 0 } = req.body;
@@ -366,70 +345,50 @@ router.post('/end-reading', async (req, res, next) => {
       await mangaCache.invalidateChapters(session.manga_id);
     }
 
+    emitReadingUpdated({ type: 'end-reading', manga_id: session.manga_id, chapter_id: session.chapter_id });
+    emitLibraryUpdated({ type: 'overview-changed' });
+    emitRecommendationsUpdated({ type: 'profile-changed' });
+
     res.json(session);
   } catch (error) {
     next(error);
   }
 });
 
-// Add bookmark
-router.post('/bookmarks', async (req, res, next) => {
+router.get('/history', async (req, res, next) => {
   try {
-    const { manga_id, chapter_id, page_number, note } = req.body;
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 50);
+    const offset = (page - 1) * limit;
 
-    if (!manga_id) {
-      return res.status(400).json({ error: 'Manga ID is required' });
-    }
-
-    const bookmark = await queryOne(
+    const history = await queryAll(
       `
-      INSERT INTO bookmarks (manga_id, chapter_id, page_number, note)
-      VALUES ($1, $2, $3, $4)
-      RETURNING *
+      SELECT 
+        rh.*,
+        m.title as manga_title,
+        m.cover_image,
+        c.chapter_number
+      FROM reading_history rh
+      JOIN manga m ON rh.manga_id = m.id
+      JOIN chapters c ON rh.chapter_id = c.id
+      ORDER BY rh.read_at DESC
+      LIMIT $1 OFFSET $2
       `,
-      [manga_id, chapter_id, page_number, note]
+      [limit, offset]
     );
 
-    res.status(201).json(bookmark);
-  } catch (error) {
-    next(error);
-  }
-});
+    const countResult = await queryOne(`
+      SELECT COUNT(*) FROM reading_history
+    `);
 
-// Get bookmarks
-router.get('/bookmarks', async (req, res, next) => {
-  try {
-    const { manga_id } = req.query;
-
-    let queryText = `
-      SELECT b.*, m.title as manga_title, c.chapter_number
-      FROM bookmarks b
-      JOIN manga m ON b.manga_id = m.id
-      LEFT JOIN chapters c ON b.chapter_id = c.id
-    `;
-
-    const params = [];
-    if (manga_id) {
-      queryText += ' WHERE b.manga_id = $1';
-      params.push(manga_id);
-    }
-
-    queryText += ' ORDER BY b.created_at DESC';
-
-    const bookmarks = await queryAll(queryText, params);
-    res.json(bookmarks);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// Delete bookmark
-router.delete('/bookmarks/:id', async (req, res, next) => {
-  try {
-    const { id } = req.params;
-
-    await query('DELETE FROM bookmarks WHERE id = $1', [id]);
-    res.json({ success: true });
+    res.json({
+      data: history,
+      pagination: {
+        page,
+        limit,
+        total: parseInt(countResult.count, 10),
+      },
+    });
   } catch (error) {
     next(error);
   }

@@ -10,6 +10,7 @@
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.28.0",
     "axios": "^1.6.2",
     "clsx": "^2.0.0",
     "date-fns": "^2.30.0",
@@ -19,8 +20,8 @@
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.4.1",
     "react-intersection-observer": "^9.5.3",
-    "@tanstack/react-query": "^5.28.0",
     "react-router-dom": "^6.20.1",
+    "socket.io-client": "^4.8.3",
     "zustand": "^4.4.7"
   },
   "devDependencies": {

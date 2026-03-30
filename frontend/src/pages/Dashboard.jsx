@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import RecommendationPanel from '../components/RecommendationPanel';
 import {
   ArrowRight,
   BookMarked,
@@ -358,6 +359,7 @@ export default function Dashboard() {
           </div>
         )}
       </section>
+      <RecommendationPanel />
     </div>
   );
 }

@@ -447,6 +447,37 @@ export const authApi = {
   },
 };
 
+export const recommendationApi = {
+  getAll(params = {}, options = {}) {
+    return request(`/recommendations${buildQuery(params)}`, {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  getProfile(options = {}) {
+    return request('/recommendations/profile', {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  getFeedback(options = {}) {
+    return request('/recommendations/feedback', {
+      method: 'GET',
+      signal: options.signal,
+    });
+  },
+
+  createFeedback(payload, options = {}) {
+    return request('/recommendations/feedback', {
+      method: 'POST',
+      body: payload,
+      signal: options.signal,
+    });
+  },
+};
+
 const api = {
   mangaApi,
   chapterApi,
@@ -455,6 +486,7 @@ const api = {
   settingsApi,
   statsApi,
   authApi,
+  recommendationApi
 };
 
 export default api;
