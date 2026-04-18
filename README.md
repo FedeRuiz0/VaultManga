@@ -1,20 +1,21 @@
-# [MangaVault](https://github.com/FedeRuiz0/VaultManga) - High-Performance Manga Reader & Smart Scraping Platform
+# 📚 MangaVault - High-Performance Manga Reader & Smart Scraping Platform
 
 [![GitHub stars](https://img.shields.io/github/stars/FedeRuiz0/VaultManga?style=flat-square)](https://github.com/FedeRuiz0/VaultManga/stargazers)
 [![Last commit](https://img.shields.io/github/last-commit/FedeRuiz0/VaultManga/main?style=flat-square)](https://github.com/FedeRuiz0/VaultManga/commits/main)
 [![License](https://img.shields.io/github/license/FedeRuiz0/VaultManga?style=flat-square)](https://github.com/FedeRuiz0/VaultManga/blob/main/LICENSE)
 [![Issues](https://img.shields.io/github/issues/FedeRuiz0/VaultManga?style=flat-square)](https://github.com/FedeRuiz0/VaultManga/issues)
 
-[![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react)](https://react.dev)
-[![Node.js](https://img.shields.io/badge/Node.js-18-339933?style=flat-square&logo=node.js)](https://nodejs.org)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?style=flat-square&logo=typescript)](https://www.typescriptlang.org)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?style=flat-square&logo=postgresql)](https://www.postgresql.org)
-[![Redis](https://img.shields.io/badge/Redis-DC382D?style=flat-square&logo=redis)](https://redis.io)
-[![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker)](https://www.docker.com)
+[![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square\&logo=react)](https://react.dev)
+[![Node.js](https://img.shields.io/badge/Node.js-18-339933?style=flat-square\&logo=node.js)](https://nodejs.org)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.0+-3178C6?style=flat-square\&logo=typescript)](https://www.typescriptlang.org)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-4169E1?style=flat-square\&logo=postgresql)](https://www.postgresql.org)
+[![Redis](https://img.shields.io/badge/Redis-DC382D?style=flat-square\&logo=redis)](https://redis.io)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square\&logo=docker)](https://www.docker.com)
 
 A next-generation manga reader built with scalable architecture, featuring **on-demand scraping**, **rate-limit protection**, and a **mobile-first experience** inspired by Tachiyomi.
 
-**[Live Demo](https://vaultmanga.vercel.app)** | **[API Documentation](#api-documentation)**
+🔗 **[Live Demo](https://vaultmanga.vercel.app)**
+📡 **[API Documentation](#api-documentation)**
 
 ---
 
@@ -32,49 +33,49 @@ A next-generation manga reader built with scalable architecture, featuring **on-
 
 ### 📚 Library & Content
 
-- Smart library with automatic manga and chapter synchronization
-- Intelligent ingestion system with incremental updates
-- Support for large-scale manga collections
-- Reading progress tracking and history
+* Smart library with automatic manga and chapter synchronization
+* Intelligent ingestion system with incremental updates
+* Support for large-scale manga collections
+* Reading progress tracking and history
 
 ### ⚡ Scraping & Data System
 
-- On-demand page scraping (fetch only when needed)
-- Optimized scraping pipeline (metadata → chapters → pages)
-- 429 protection system (retry + exponential backoff + jitter)
-- Redis distributed locks to prevent duplicate scrapes
-- Automated background ingestion with scheduled updates
+* On-demand page scraping (fetch only when needed)
+* Optimized scraping pipeline (metadata → chapters → pages)
+* 429 protection system (retry + exponential backoff + jitter)
+* Redis distributed locks to prevent duplicate scrapes
+* Automated background ingestion with scheduled updates
 
 ### 📖 Reader Experience
 
-- Webtoon-style vertical infinite scroll
-- Smooth scrolling with lazy loading
-- Next chapter prefetching (Tachiyomi-like UX)
-- Fullscreen immersive reading mode
-- Keyboard navigation support
-- Automatic read tracking
+* Webtoon-style vertical infinite scroll
+* Smooth scrolling with lazy loading
+* Next chapter prefetching (Tachiyomi-like UX)
+* Fullscreen immersive reading mode
+* Keyboard navigation support
+* Automatic read tracking
 
 ### 🚀 Performance & Architecture
 
-- Cache-first architecture using Redis (95%+ hit rate)
-- Sub-200ms API response times (cached)
-- Idempotent database operations (no duplicates)
-- Resilient API design with retry strategies
-- Scalable service-oriented architecture (Docker-based)
+* Cache-first architecture using Redis (95%+ hit rate)
+* Sub-200ms API response times (cached)
+* Idempotent database operations (no duplicates)
+* Resilient API design with retry strategies
+* Scalable service-oriented architecture (Docker-based)
 
 ### 📱 Mobile & UX
 
-- Mobile-first responsive design
-- Progressive Web App (PWA) support
-- Installable on mobile devices
-- Smooth and optimized touch interactions
-- Cross-device reading continuity
+* Mobile-first responsive design
+* Progressive Web App (PWA) support
+* Installable on mobile devices
+* Smooth and optimized touch interactions
+* Cross-device reading continuity
 
 ### 🧠 AI & Future Capabilities
 
-- OCR-based text extraction (in development)
-- AI-ready recommendation system architecture
-- Modular AI service layer (Python + Flask)
+* OCR-based text extraction (in development)
+* AI-ready recommendation system architecture
+* Modular AI service layer (Python + Flask)
 
 ---
 
@@ -92,29 +93,29 @@ graph TD
     API --> AI[AI Services]
 ```
 
-### Key Patterns
+### 🔑 Key Patterns
 
-- Cache-first architecture
-- Distributed locking
-- Idempotent DB operations
-- API resilience (retry, backoff, rate-limit handling)
+* Cache-first architecture
+* Distributed locking
+* Idempotent DB operations
+* API resilience (retry, backoff, rate-limit handling)
 
 ---
 
 ## 💡 Why This Project Matters
 
-MangaVault solves a core problem: **owning and managing your manga library without relying on external platforms**.
+MangaVault solves a core problem: **owning and managing your manga library without relying on external platforms.**
 
 Most readers depend on third-party services → slow, unreliable, limited.
 
-MangaVault provides:
+### ✨ What MangaVault Provides:
 
-- Full control over your library
-- Faster loading via caching
-- Scalable backend design
-- Real-world architecture patterns
+* Full control over your library
+* Faster loading via caching
+* Scalable backend design
+* Real-world architecture patterns
 
-This project is also a **portfolio-level system design showcase**.
+📌 This project is also a **portfolio-level system design showcase**
 
 ---
 
@@ -122,30 +123,30 @@ This project is also a **portfolio-level system design showcase**.
 
 ### Frontend
 
-- React 18 + Vite
-- TanStack Query
-- TailwindCSS
-- Framer Motion
-- React Router
+* React 18 + Vite
+* TanStack Query
+* TailwindCSS
+* Framer Motion
+* React Router
 
 ### Backend
 
-- Node.js + Express
-- PostgreSQL 15
-- Redis
-- JWT Auth
-- Axios (MangaDex API)
+* Node.js + Express
+* PostgreSQL 15
+* Redis
+* JWT Authentication
+* Axios (MangaDex API)
 
 ### AI Services
 
-- Python 3.10+
-- Flask
-- Sentence Transformers
-- EasyOCR
+* Python 3.10+
+* Flask
+* Sentence Transformers
+* EasyOCR
 
 ### Infrastructure
 
-- Docker + Docker Compose
+* Docker + Docker Compose
 
 ---
 
@@ -171,13 +172,13 @@ mangavault/
 
 ## 🚦 Quick Start
 
-### Prerequisites
+### 📌 Prerequisites
 
-- Docker & Docker Compose
-- Node.js 18+
-- Python 3.10+
+* Docker & Docker Compose
+* Node.js 18+
+* Python 3.10+
 
-### Docker (Recommended)
+### 🐳 Docker (Recommended)
 
 ```bash
 git clone https://github.com/FedeRuiz0/VaultManga.git
@@ -185,7 +186,7 @@ cd mangavault
 docker-compose up -d
 ```
 
-### Local Development
+### 💻 Local Development
 
 ```bash
 # Backend
@@ -204,52 +205,102 @@ npm run dev
 
 ## 🔐 Environment
 
+### Backend (.env)
+
 ```env
 NODE_ENV=development
 PORT=3001
 DATABASE_URL=postgresql://user:pass@localhost:5432/mangavault
 REDIS_URL=redis://localhost:6379
 JWT_SECRET=your_secret
+CORS_ORIGIN=http://localhost:5173
+ENABLE_STARTUP_BOTS=false
+```
+
+### Frontend (.env)
+
+```env
+VITE_API_BASE_URL=/api/v1
+VITE_SOCKET_URL=
+VITE_DEV_API_PROXY_TARGET=http://localhost:3001
+```
+
+📌 En producción:
+
+```
+VITE_API_BASE_URL=https://your-api.up.railway.app/api/v1
+```
+
+---
+
+## 🚂 Railway Deployment (Minimal Setup)
+
+### Backend
+
+* Crear servicio desde `backend/`
+* Agregar PostgreSQL y Redis
+* Configurar variables:
+
+```env
+NODE_ENV=production
+PORT=${{PORT}}
+DATABASE_URL=${{Postgres.DATABASE_URL}}
+REDIS_URL=${{Redis.REDIS_URL}}
+JWT_SECRET=<strong-secret>
+CORS_ORIGIN=https://your-frontend-domain
+ENABLE_STARTUP_BOTS=false
+```
+
+### Frontend
+
+```env
+VITE_API_BASE_URL=https://your-backend-domain/api/v1
+```
+
+✅ Verificar:
+
+```
+https://your-backend-domain/health
 ```
 
 ---
 
 ## 📡 API Documentation
 
-| Method | Endpoint | Description |
-|--------|--------|------------|
-| GET | `/api/v1/manga/:id` | Manga + chapters |
-| GET | `/api/v1/chapters/:id` | Chapter metadata |
-| GET | `/api/v1/pages/chapter/:id` | Fetch pages (on-demand) |
-| POST | `/api/v1/library/start-reading` | Start session |
-| POST | `/api/v1/library/end-reading` | Save progress |
-| POST | `/api/v1/auth/login` | Login |
+| Method | Endpoint                      | Description             |
+| ------ | ----------------------------- | ----------------------- |
+| GET    | /api/v1/manga/:id             | Manga + chapters        |
+| GET    | /api/v1/chapters/:id          | Chapter metadata        |
+| GET    | /api/v1/pages/chapter/:id     | Fetch pages (on-demand) |
+| POST   | /api/v1/library/start-reading | Start session           |
+| POST   | /api/v1/library/end-reading   | Save progress           |
+| POST   | /api/v1/auth/login            | Login                   |
 
 ---
 
 ## ⚡ Performance
 
-- API latency: < 200ms (cached)
-- Cache hit rate: 95%+
-- 429 failures: ~0 (protected)
-- Concurrent users tested: 100+
+* API latency: **< 200ms (cached)**
+* Cache hit rate: **95%+**
+* 429 failures: **~0 (protected)**
+* Concurrent users tested: **100+**
 
 ---
 
 ## 🔄 Scraping Strategy
 
-### Traditional (Bad)
+### ❌ Traditional (Bad)
 
-- Scrape everything upfront
-- Slow + rate-limited
+* Scrape everything upfront
+* Slow + rate-limited
 
-### MangaVault (Optimized)
+### ✅ MangaVault (Optimized)
 
-- Scrape metadata only
-- Pages on-demand
-- Cache results
+* Scrape metadata only
+* Pages on-demand
+* Cache results
 
-Flow:
+### 🔁 Flow
 
 ```
 User opens chapter → Check cache → Scrape if needed → Cache → Return instantly
@@ -259,26 +310,24 @@ User opens chapter → Check cache → Scrape if needed → Cache → Return ins
 
 ## 📱 Mobile Experience
 
-PWA Features:
+### PWA Features:
 
-- Installable
-- Fullscreen reader
-- Smooth scrolling
-- Prefetch system
-- Session tracking
+* Installable
+* Fullscreen reader
+* Smooth scrolling
+* Prefetch system
+* Session tracking
 
-**Future:** React Native app
+📌 Future: React Native App
 
 ---
 
 ## 🤖 AI Layer (Experimental)
 
-An architecture ready for advanced features:
+* OCR Extraction (in development)
+* Recommendation system (planned)
 
-- **OCR Extraction**: Text recognition from manga pages (in development)
-- **Recommendations**: ML-ready data pipeline (planned)
-
-Status: Research phase
+📌 Status: Research phase
 
 ---
 
@@ -293,51 +342,49 @@ cd frontend && npm run build
 
 ## 📋 Limitations
 
-- MangaDex rate limits
-- Some chapters may fail temporarily
-- Single source (for now)
+* MangaDex rate limits
+* Some chapters may fail temporarily
+* Single source (for now)
 
 ---
 
 ## 🗺️ Roadmap
 
-### Completed
+### ✅ Completed
 
-- Core library system
-- On-demand scraping
-- Rate-limit protection
-- PWA base
+* Core library system
+* On-demand scraping
+* Rate-limit protection
+* PWA base
 
-### In Progress
+### 🚧 In Progress
 
-- Offline reading
-- Notifications
+* Offline reading
+* Notifications
 
-### Planned
+### 🔮 Planned
 
-- Mobile app (React Native)
-- Multi-source scraping
-- Cloud sync
-- Recommendation engine
+* Mobile app (React Native)
+* Multi-source scraping
+* Cloud sync
+* Recommendation engine
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! To get started:
+```bash
+git checkout -b feature/amazing-feature
+git commit -m "Add amazing feature"
+git push origin feature/amazing-feature
+```
 
-1. **Fork** the repository
-2. **Create** a feature branch: `git checkout -b feature/amazing-feature`
-3. **Commit** your changes: `git commit -m 'Add amazing feature'`
-4. **Push** to the branch: `git push origin feature/amazing-feature`
-5. **Open** a Pull Request
+### 💡 Ideas
 
-### Ideas for Contributions
-
-- Additional manga source integrations
-- React Native mobile application
-- OCR and translation improvements
-- UI/UX enhancements
+* Additional manga sources
+* React Native app
+* OCR improvements
+* UI/UX enhancements
 
 ---
 
@@ -349,6 +396,6 @@ MIT License
 
 ## 🙏 Acknowledgments
 
-- **[MangaDex](https://mangadex.org)**: Primary content source with excellent API
-- **[Tachiyomi](https://tachiyomi.org)**: UX inspiration for the reader experience
-- **[Webtoon](https://www.webtoons.com)**: Mobile reading patterns and UI design
+* MangaDex → API source
+* Tachiyomi → UX inspiration
+* Webtoon → Mobile reading design

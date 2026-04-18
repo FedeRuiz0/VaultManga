@@ -9,6 +9,12 @@ import {
 
 const router = express.Router();
 
+function normalizePageNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(0, Math.floor(parsed));
+}
+
 router.get('/overview', async (req, res, next) => {
   try {
     const overview = await queryOne(`
@@ -184,7 +190,9 @@ router.get('/recent-read', async (req, res, next) => {
 
 router.post('/start-reading', async (req, res, next) => {
   try {
-    const { chapter_id, manga_id, page_number = 0 } = req.body;
+    const chapter_id = req.body?.chapter_id;
+    const manga_id = req.body?.manga_id;
+    const page_number = normalizePageNumber(req.body?.page_number, 0);
 
     if (!chapter_id || !manga_id) {
       return res.status(400).json({ error: 'Chapter ID and Manga ID are required' });
@@ -203,7 +211,7 @@ router.post('/start-reading', async (req, res, next) => {
       `
       UPDATE chapters SET
         last_read_at = CURRENT_TIMESTAMP,
-        read_progress = GREATEST(read_progress, $2),
+        read_progress = GREATEST(COALESCE(read_progress, 0), $2),
         updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
       `,
@@ -232,7 +240,7 @@ router.post('/start-reading', async (req, res, next) => {
     await mangaCache.invalidateManga(manga_id);
     await mangaCache.invalidateChapters(manga_id);
 
-    emitReadingUpdated({ type: 'start-reading', manga_id, chapter_id });
+    emitReadingUpdated({ type: 'start-reading', manga_id, chapter_id, page_number });
     emitLibraryUpdated({ type: 'overview-changed' });
     emitRecommendationsUpdated({ type: 'profile-changed' });
 
@@ -244,7 +252,9 @@ router.post('/start-reading', async (req, res, next) => {
 
 router.post('/progress', async (req, res, next) => {
   try {
-    const { manga_id, chapter_id, page_number = 0 } = req.body;
+    const chapter_id = req.body?.chapter_id;
+    const manga_id = req.body?.manga_id;
+    const page_number = normalizePageNumber(req.body?.page_number, 0);
 
     if (!chapter_id || !manga_id) {
       return res.status(400).json({ error: 'Chapter ID and Manga ID are required' });
@@ -253,7 +263,7 @@ router.post('/progress', async (req, res, next) => {
     await query(
       `
       UPDATE chapters SET
-        read_progress = GREATEST(read_progress, $2),
+        read_progress = GREATEST(COALESCE(read_progress, 0), $2),
         last_read_at = CURRENT_TIMESTAMP,
         updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
@@ -287,7 +297,7 @@ router.post('/progress', async (req, res, next) => {
     emitLibraryUpdated({ type: 'overview-changed' });
     emitRecommendationsUpdated({ type: 'profile-changed' });
 
-    res.json({ success: true });
+    res.json({ success: true, page_number });
   } catch (error) {
     next(error);
   }
@@ -295,7 +305,9 @@ router.post('/progress', async (req, res, next) => {
 
 router.post('/end-reading', async (req, res, next) => {
   try {
-    const { session_id, end_page = 0, duration_seconds = 0 } = req.body;
+    const session_id = req.body?.session_id;
+    const end_page = normalizePageNumber(req.body?.end_page, 0);
+    const duration_seconds = normalizePageNumber(req.body?.duration_seconds, 0);
 
     if (!session_id) {
       return res.status(400).json({ error: 'Session ID is required' });
@@ -321,7 +333,7 @@ router.post('/end-reading', async (req, res, next) => {
       await query(
         `
         UPDATE chapters SET
-          read_progress = GREATEST(read_progress, $2),
+          read_progress = GREATEST(COALESCE(read_progress, 0), $2),
           last_read_at = CURRENT_TIMESTAMP,
           updated_at = CURRENT_TIMESTAMP
         WHERE id = $1
@@ -345,7 +357,12 @@ router.post('/end-reading', async (req, res, next) => {
       await mangaCache.invalidateChapters(session.manga_id);
     }
 
-    emitReadingUpdated({ type: 'end-reading', manga_id: session.manga_id, chapter_id: session.chapter_id });
+    emitReadingUpdated({
+      type: 'end-reading',
+      manga_id: session.manga_id,
+      chapter_id: session.chapter_id,
+      end_page,
+    });
     emitLibraryUpdated({ type: 'overview-changed' });
     emitRecommendationsUpdated({ type: 'profile-changed' });
 

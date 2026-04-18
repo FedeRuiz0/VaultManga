@@ -1,4 +1,4 @@
-const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_BASE || '/api/v1';
 
 function buildQuery(params = {}) {
   const searchParams = new URLSearchParams();
@@ -327,21 +327,21 @@ export const libraryApi = {
   startReading(data) {
     return request('/library/start-reading', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: data,
     });
   },
 
   progress(data) {
     return request('/library/progress', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: data,
     });
   },
 
   endReading(data) {
     return request('/library/end-reading', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: data,
     });
   },
 

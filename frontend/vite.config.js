@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
+const devApiProxyTarget = process.env.VITE_DEV_API_PROXY_TARGET || 'http://localhost:3001';
+
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -8,7 +10,7 @@ export default defineConfig({
     strictPort: true,
     proxy: {
       '/api': {
-        target: 'http://mangavault_api:3001', // localDocker: http://mangavault_api:3001
+        target: devApiProxyTarget,
         changeOrigin: true,
       }
     }

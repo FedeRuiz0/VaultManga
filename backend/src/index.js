@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
@@ -17,20 +18,66 @@ import statsRoutes from './routes/statsRoutes.js';
 import recommendationRoutes from './routes/recommendationRoutes.js';
 
 // Bots
-import runLibrarySeedBot from './bots/librarySeedBot.js';
-import runGenreSeedBot from './bots/genreSeedBot.js';
+import runLibrarySeedBot from './bots/librarySeedbot.js';
+import runGenreSeedBot from './bots/genreSeedbot.js';
 
 import { initSocket } from './realtime/socket.js';
 
 const app = express();
 const server = http.createServer(app);
-const io = initSocket(server);
 
-const PORT = process.env.PORT || 3001;
+const PORT = Number(process.env.PORT) || 3001;
+const NODE_ENV = process.env.NODE_ENV || 'development';
 
-app.use(cors());
+function getAllowedOrigins() {
+  const envOrigins = (process.env.CORS_ORIGIN || '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+  if (NODE_ENV === 'production') {
+    if (envOrigins.length === 0) {
+      throw new Error('CORS_ORIGIN is required in production');
+    }
+    return envOrigins;
+  }
+
+  const devOrigins = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+  ];
+
+  return [...new Set([...devOrigins, ...envOrigins])];
+}
+
+const allowedOrigins = getAllowedOrigins();
+
+const corsOptions = {
+  origin(origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+};
+
+const io = initSocket(server, allowedOrigins);
+
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(morgan('dev'));
+
+app.get('/', (req, res) => {
+  res.json({
+    status: 'ok',
+    service: 'MangaVault API',
+    environment: NODE_ENV,
+  });
+});
 
 app.use('/api/v1/manga', mangaRoutes);
 app.use('/api/v1/chapters', chapterRoutes);
@@ -70,11 +117,9 @@ async function startServer() {
 
     server.listen(PORT, () => {
       console.log(`🚀 MangaVault API running on port ${PORT}`);
-      console.log(`📚 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`📚 Environment: ${NODE_ENV}`);
+      console.log(`🌍 Allowed CORS origins: ${allowedOrigins.join(', ')}`);
     });
-
-    console.log('ENABLE_STARTUP_BOTS =', process.env.ENABLE_STARTUP_BOTS);
-    console.log('STARTUP_GENRES =', process.env.STARTUP_GENRES);
 
     if (process.env.ENABLE_STARTUP_BOTS === 'true') {
       console.log('🤖 Starting startup bots...');

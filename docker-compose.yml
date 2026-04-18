@@ -43,6 +43,7 @@ services:
       DATABASE_URL: postgresql://mangavault:123456@postgres:5432/mangavault
       REDIS_URL: redis://redis:6379
       JWT_SECRET: mangavault_secret_key_change_in_production
+      CORS_ORIGIN: http://localhost:5173
       MANGA_FOLDERS: /manga/library
       AUTO_SCAN_ON_STARTUP: "true"
 
@@ -73,8 +74,9 @@ services:
       dockerfile: Dockerfile
     container_name: mangavault_web
     environment:
-      VITE_API_URL: http://mangavault_api:3001/api
-      VITE_WS_URL: ws://mangavault_api:3001
+      VITE_API_BASE_URL: /api/v1
+      VITE_DEV_API_PROXY_TARGET: http://backend:3001
+      VITE_SOCKET_URL: ws://localhost:3001
     command: npm run dev -- --host 0.0.0.0
     ports:
       - "5173:5173"

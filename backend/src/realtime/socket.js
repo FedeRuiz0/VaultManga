@@ -2,11 +2,12 @@ import { Server } from 'socket.io';
 
 let ioInstance = null;
 
-export function initSocket(server) {
+export function initSocket(server, allowedOrigins = ['*']) {
   ioInstance = new Server(server, {
     cors: {
-      origin: '*',
+      origin: allowedOrigins,
       methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
+      credentials: true,
     },
   });
 
