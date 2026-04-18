@@ -6,6 +6,8 @@ const devApiProxyTarget = process.env.VITE_DEV_API_PROXY_TARGET || 'http://local
 export default defineConfig({
   plugins: [react()],
   server: {
+    host: '0.0.0.0',
+    allowedHosts: 'all',
     port: 5173,
     strictPort: true,
     proxy: {
