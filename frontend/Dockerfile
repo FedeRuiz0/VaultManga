@@ -1,17 +1,16 @@
-FROM node:20-alpine
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files
 COPY package*.json ./
+RUN npm ci
 
-RUN npm install
-
-# Copy source
 COPY . .
+RUN npm run build
 
+FROM caddy:2-alpine
 
-EXPOSE 5173
+COPY Caddyfile /etc/caddy/Caddyfile
+COPY --from=builder /app/dist /srv
 
-CMD ["npm", "run", "dev", "--", "--host"]
-
+EXPOSE 80
