@@ -34,7 +34,13 @@ export default function SearchBar({
 
     try {
       setLoading(true);
-      const response = await mangaApi.search(query.trim(), 6);
+      const response = await mangaApi.getAll({
+        search: query.trim(),
+        limit: 6,
+        page: 1,
+        sort: 'title',
+        order: 'ASC',
+      });
       const items = Array.isArray(response) ? response : response?.data || [];
       setSuggestions(items);
     } catch (error) {

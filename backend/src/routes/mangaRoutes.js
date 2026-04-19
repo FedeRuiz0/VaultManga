@@ -149,6 +149,11 @@ router.get('/', async (req, res, next) => {
         OR m.description ILIKE $${paramIndex}
         OR m.author ILIKE $${paramIndex}
         OR m.artist ILIKE $${paramIndex}
+        OR EXISTS (
+          SELECT 1
+          FROM jsonb_array_elements_text(COALESCE(m.alt_titles::jsonb, '[]'::jsonb)) AS alt_title
+          WHERE alt_title ILIKE $${paramIndex}
+        )
       )`;
       params.push(`%${search}%`);
       paramIndex += 1;
