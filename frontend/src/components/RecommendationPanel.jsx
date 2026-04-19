@@ -8,15 +8,18 @@ export default function RecommendationPanel() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['recommendations'],
     queryFn: ({ signal }) => recommendationApi.getAll({ limit: 8 }, { signal }),
-    staleTime: 0,
-    refetchOnWindowFocus: true,
+    staleTime: 5 * 60_000,
+    gcTime: 20 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: 1,
   });
 
   const feedbackMutation = useMutation({
     mutationFn: (payload) => recommendationApi.createFeedback(payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['recommendations'] });
-      queryClient.invalidateQueries({ queryKey: ['recommendationProfile'] });
+      queryClient.invalidateQueries({ queryKey: ['recommendations'], exact: true });
+      queryClient.invalidateQueries({ queryKey: ['recommendationProfile'], exact: true });
     },
   });
 

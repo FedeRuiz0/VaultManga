@@ -14,10 +14,15 @@ export function useRealtimeSync() {
     const refreshLibrary = () => {
       queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
       queryClient.invalidateQueries({ queryKey: ['libraryManga'] });
-      queryClient.invalidateQueries({ queryKey: ['manga'] });
-      queryClient.invalidateQueries({ queryKey: ['chapters'] });
       queryClient.invalidateQueries({ queryKey: ['recentReadPage'] });
       queryClient.invalidateQueries({ queryKey: ['history'] });
+      queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey?.[0] === 'chapter',
+      });
+      queryClient.invalidateQueries({
+        predicate: (query) =>
+          query.queryKey?.[0] === 'chapters' && query.queryKey?.[2] === 'reader-nav',
+      });
     };
 
     const refreshRecommendations = () => {

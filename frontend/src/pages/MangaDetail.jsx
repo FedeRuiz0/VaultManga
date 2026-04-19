@@ -80,8 +80,11 @@ export default function MangaDetail() {
     queryKey: ['manga', id],
     queryFn: ({ signal }) => mangaApi.getById(id, { signal }),
     enabled: !!id,
-    staleTime: 0,
-    refetchOnWindowFocus: true,
+    staleTime: 2 * 60_000,
+    gcTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+    retry: 1,
   });
 
   const {
@@ -98,8 +101,11 @@ export default function MangaDetail() {
         { signal }
       ),
     enabled: !!id,
-    staleTime: 0,
-    refetchOnWindowFocus: true,
+    staleTime: 2 * 60_000,
+    gcTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+    retry: 1,
   });
 
   const manga = mangaData?.data?.manga || mangaData?.manga || mangaData?.data || mangaData;
@@ -144,9 +150,9 @@ export default function MangaDetail() {
   const handleToggleFavorite = async () => {
     try {
       await mangaApi.toggleFavorite(id);
-      queryClient.invalidateQueries({ queryKey: ['manga', id] });
+      queryClient.invalidateQueries({ queryKey: ['manga', id], exact: true });
       queryClient.invalidateQueries({ queryKey: ['libraryManga'] });
-      queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
+      queryClient.invalidateQueries({ queryKey: ['libraryOverview'], exact: true });
     } catch (error) {
       console.error('Failed to toggle favorite:', error);
     }

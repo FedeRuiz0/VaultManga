@@ -97,16 +97,18 @@ export async function cacheReaderAssets(urls = []) {
     return;
   }
 
+  const uniqueUrls = Array.from(new Set(urls.filter(Boolean)));
+  if (uniqueUrls.length === 0) return;
+
   const cache = await caches.open(CACHE_NAME);
 
   await Promise.all(
-    urls.map(async (url) => {
-      if (!url) return;
-
+    uniqueUrls.map(async (url) => {
       try {
         const existing = await cache.match(url);
         if (existing) return;
 
+        if (!navigator.onLine) return;
         const response = await fetch(url).catch(() => null);
         if (!response) return;
 
@@ -254,10 +256,10 @@ export async function fetchPagesWithOfflineFallback(chapterId, options = {}) {
     saveOfflineChapterPages(chapterId, pages);
 
     await cacheReaderAssets(
-  pages
-    .map((page) => page?.id ? getPageUrl(page.id) : null)
-    .filter(Boolean)
-);
+      pages
+        .map((page) => (page?.id ? getPageUrl(page.id) : null))
+        .filter(Boolean)
+    );
 
     return pages;
   } catch (error) {
@@ -298,10 +300,10 @@ export async function prefetchChapterForOffline(chapterId) {
     saveOfflineChapterPages(chapterId, pages);
 
     await cacheReaderAssets(
-  pages
-    .map((page) => page?.id ? getPageUrl(page.id) : null)
-    .filter(Boolean)
-);
+      pages
+        .map((page) => (page?.id ? getPageUrl(page.id) : null))
+        .filter(Boolean)
+    );
 
   } catch (error) {
     console.warn('[offlineReader] prefetch failed', chapterId, error);

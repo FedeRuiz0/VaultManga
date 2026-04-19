@@ -63,6 +63,7 @@ export default function Reader() {
   const readingStartedAtRef = useRef(null);
   const currentPageRef = useRef(0);
   const restoredProgressRef = useRef(false);
+  const lastSyncedPageRef = useRef(0);
 
   useEffect(() => {
     currentPageRef.current = currentPage;
@@ -74,10 +75,10 @@ export default function Reader() {
 
       try {
         await flushOfflineProgressQueue();
-        queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
+        queryClient.invalidateQueries({ queryKey: ['libraryOverview'], exact: true });
         queryClient.invalidateQueries({ queryKey: ['libraryManga'] });
-        queryClient.invalidateQueries({ queryKey: ['manga'] });
-        queryClient.invalidateQueries({ queryKey: ['chapters'] });
+        queryClient.invalidateQueries({ queryKey: ['recentReadPage'] });
+        queryClient.invalidateQueries({ queryKey: ['history'] });
       } catch (error) {
         console.warn('[Reader] failed to sync offline queue', error);
       }
@@ -103,8 +104,11 @@ export default function Reader() {
     queryKey: ['chapter', chapterId],
     queryFn: ({ signal }) => fetchChapterWithOfflineFallback(chapterId, { signal }),
     enabled: Boolean(chapterId),
-    staleTime: 60_000,
+    staleTime: 2 * 60_000,
+    gcTime: 10 * 60_000,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+    retry: 1,
   });
 
   const chapter = chapterData?.data || chapterData;
@@ -119,8 +123,11 @@ export default function Reader() {
     queryKey: ['pages', chapterId],
     queryFn: ({ signal }) => fetchPagesWithOfflineFallback(chapterId, { signal }),
     enabled: Boolean(chapterId),
-    staleTime: 120_000,
+    staleTime: 5 * 60_000,
+    gcTime: 15 * 60_000,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: 1,
   });
 
   const pages = pagesData?.data || pagesData || [];
@@ -134,8 +141,11 @@ export default function Reader() {
         { signal }
       ),
     enabled: Boolean(chapter?.manga_id),
-    staleTime: 60_000,
+    staleTime: 2 * 60_000,
+    gcTime: 10 * 60_000,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
+    retry: 1,
   });
 
   const chapters = chaptersData?.data || chaptersData || [];
@@ -144,8 +154,11 @@ export default function Reader() {
     queryKey: ['chapterNext', chapterId],
     queryFn: ({ signal }) => getChapterNeighborSafely('next', chapterId, signal),
     enabled: Boolean(chapterId) && !isOffline,
-    staleTime: 60_000,
+    staleTime: 5 * 60_000,
+    gcTime: 15 * 60_000,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: 0,
   });
 
   const nextChapter = nextChapterData?.data || nextChapterData;
@@ -154,15 +167,17 @@ export default function Reader() {
     queryKey: ['chapterPrev', chapterId],
     queryFn: ({ signal }) => getChapterNeighborSafely('prev', chapterId, signal),
     enabled: Boolean(chapterId) && !isOffline,
-    staleTime: 60_000,
+    staleTime: 5 * 60_000,
+    gcTime: 15 * 60_000,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: 0,
   });
 
   const prevChapter = prevChapterData?.data || prevChapterData;
 
   const totalPages = pages.length;
 
-  // read_progress ahora significa "páginas leídas"
   const savedPage = useMemo(() => {
     if (!chapter || totalPages === 0) return 0;
 
@@ -187,22 +202,20 @@ export default function Reader() {
   }, [totalPages]);
 
   const invalidateReadingQueries = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
+    queryClient.invalidateQueries({ queryKey: ['libraryOverview'], exact: true });
     queryClient.invalidateQueries({ queryKey: ['libraryManga'] });
-    queryClient.invalidateQueries({ queryKey: ['dashboardRecentRead'] });
     queryClient.invalidateQueries({ queryKey: ['recentReadPage'] });
     queryClient.invalidateQueries({ queryKey: ['history'] });
-    queryClient.invalidateQueries({ queryKey: ['manga'] });
 
     if (chapter?.manga_id) {
-      queryClient.invalidateQueries({ queryKey: ['manga', chapter.manga_id] });
-      queryClient.invalidateQueries({ queryKey: ['chapters', chapter.manga_id] });
+      queryClient.invalidateQueries({ queryKey: ['manga', chapter.manga_id], exact: true });
       queryClient.invalidateQueries({
         queryKey: ['chapters', chapter.manga_id, 'reader-nav'],
+        exact: true,
       });
     }
 
-    queryClient.invalidateQueries({ queryKey: ['chapter', chapterId] });
+    queryClient.invalidateQueries({ queryKey: ['chapter', chapterId], exact: true });
   }, [chapter?.manga_id, chapterId, queryClient]);
 
   const startReadingMutation = useMutation({
@@ -210,15 +223,11 @@ export default function Reader() {
     onSuccess: (session) => {
       readingSessionIdRef.current = session?.id || null;
       readingStartedAtRef.current = Date.now();
-      invalidateReadingQueries();
     },
   });
 
   const progressMutation = useMutation({
     mutationFn: (payload) => libraryApi.progress(payload),
-    onSuccess: () => {
-      invalidateReadingQueries();
-    },
   });
 
   const endReadingMutation = useMutation({
@@ -263,6 +272,7 @@ export default function Reader() {
     restoredProgressRef.current = false;
     readingSessionIdRef.current = null;
     readingStartedAtRef.current = null;
+    lastSyncedPageRef.current = 0;
     currentPageRef.current = 0;
     pageRefs.current = [];
     setCurrentPage(0);
@@ -314,6 +324,7 @@ export default function Reader() {
 
     if (navigator.onLine) {
       if (!readingSessionIdRef.current) {
+        lastSyncedPageRef.current = savedPage + 1;
         startReadingMutation.mutate({
           manga_id: chapter.manga_id,
           chapter_id: chapterId,
@@ -361,24 +372,30 @@ export default function Reader() {
     }
 
     progressTimerRef.current = setTimeout(() => {
+      const pagesRead = getPagesReadForStorage();
+      if (pagesRead === lastSyncedPageRef.current) {
+        return;
+      }
+
       const payload = {
         manga_id: chapter.manga_id,
         chapter_id: chapterId,
-        page_number: getPagesReadForStorage(),
+        page_number: pagesRead,
       };
 
       if (navigator.onLine) {
         progressMutation.mutate(payload);
+        lastSyncedPageRef.current = pagesRead;
       } else {
         queueOfflineProgress({
           mangaId: chapter.manga_id,
           chapterId,
-          pageNumber: getPagesReadForStorage(),
+          pageNumber: pagesRead,
           completed: false,
           durationSeconds: 0,
         });
       }
-    }, 400);
+    }, 1_200);
 
     return () => {
       if (progressTimerRef.current) {
@@ -456,6 +473,7 @@ export default function Reader() {
           chapter_id: chapterId,
           page_number: currentProgressPage,
         });
+        lastSyncedPageRef.current = currentProgressPage;
 
         const elapsedSeconds = readingStartedAtRef.current
           ? Math.max(0, Math.round((Date.now() - readingStartedAtRef.current) / 1000))
@@ -482,6 +500,8 @@ export default function Reader() {
             : 0,
         });
       }
+
+      invalidateReadingQueries();
     } catch (error) {
       console.error('Failed to persist chapter progress before navigation:', error);
     }

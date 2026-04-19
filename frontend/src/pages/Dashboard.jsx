@@ -196,10 +196,10 @@ export default function Dashboard() {
   const overviewQuery = useQuery({
     queryKey: ['libraryOverview'],
     queryFn: ({ signal }) => libraryApi.getOverview({ signal }),
-    staleTime: 60_000,
-    gcTime: 10 * 60_000,
+    staleTime: 2 * 60_000,
+    gcTime: 15 * 60_000,
     refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
+    refetchOnReconnect: true,
     retry: 1,
   });
 

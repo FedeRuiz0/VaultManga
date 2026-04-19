@@ -11,9 +11,9 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 1,
-      staleTime: 0,
-      gcTime: 0,
-      refetchOnWindowFocus: true,
+      staleTime: 60_000,
+      gcTime: 10 * 60_000,
+      refetchOnWindowFocus: false,
       refetchOnReconnect: true,
     },
   },
@@ -48,8 +48,8 @@ window.addEventListener('load', () => {
 installOfflineSync(() => {
   queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
   queryClient.invalidateQueries({ queryKey: ['libraryManga'] });
-  queryClient.invalidateQueries({ queryKey: ['manga'] });
-  queryClient.invalidateQueries({ queryKey: ['chapters'] });
+  queryClient.invalidateQueries({ queryKey: ['recentReadPage'] });
+  queryClient.invalidateQueries({ queryKey: ['history'] });
   queryClient.invalidateQueries({ queryKey: ['recommendations'] });
   queryClient.invalidateQueries({ queryKey: ['recommendationProfile'] });
 });
