@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { recommendationApi } from '../services/api';
+import { getCoverUrl } from '../lib/imageUrls';
 
 export default function RecommendationPanel() {
   const queryClient = useQueryClient();
@@ -46,9 +47,9 @@ export default function RecommendationPanel() {
         {recommendations.map((item) => (
           <article key={item.id} className="panel-soft p-4">
             <div className="mb-3 overflow-hidden rounded-2xl bg-[var(--surface-2)]">
-              {item.cover_image ? (
+              {item.id ? (
                 <img
-                  src={item.cover_image}
+                  src={getCoverUrl(item.id)}
                   alt={item.title}
                   className="aspect-[0.8] w-full object-cover"
                 />

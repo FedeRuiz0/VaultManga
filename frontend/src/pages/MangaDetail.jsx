@@ -12,6 +12,7 @@ import {
 import clsx from 'clsx';
 import { mangaApi, chapterApi } from '../services/api';
 import LoadingScreen from '../components/LoadingScreen';
+import { getCoverUrl } from '../lib/imageUrls';
 
 function normalizeGenres(genre) {
   if (Array.isArray(genre)) return genre;
@@ -26,6 +27,24 @@ function normalizeGenres(genre) {
   }
 
   return [];
+}
+
+function normalizeDescription(description) {
+  if (!description) return '';
+  if (typeof description === 'string') return description;
+
+  if (typeof description === 'object') {
+    return (
+      description.en ||
+      description.es ||
+      description['es-la'] ||
+      description['pt-br'] ||
+      Object.values(description).find((value) => typeof value === 'string') ||
+      ''
+    );
+  }
+
+  return '';
 }
 
 function getPagesRead(chapter) {
@@ -83,9 +102,10 @@ export default function MangaDetail() {
     refetchOnWindowFocus: true,
   });
 
-  const manga = mangaData?.data || mangaData;
+  const manga = mangaData?.data?.manga || mangaData?.manga || mangaData?.data || mangaData;
   const chapters = chaptersData?.data || chaptersData || [];
-  const genres = normalizeGenres(manga?.genre);
+  const genres = normalizeGenres(manga?.genre || manga?.genres);
+  const description = normalizeDescription(manga?.description);
 
   const readChapters = useMemo(
     () => chapters.filter((chapter) => chapter.is_read).length,
@@ -194,11 +214,11 @@ export default function MangaDetail() {
       </button>
 
       <div className="relative">
-        {manga.cover_image ? (
+        {manga.id ? (
           <div className="absolute inset-0 overflow-hidden rounded-[28px]">
             <div className="absolute inset-0 bg-gradient-to-t from-[var(--bg)] via-[var(--bg)]/80 to-transparent" />
             <img
-              src={`${API_BASE.replace('/api/v1', '')}/api/v1/images/cover/${manga.id}`}
+              src={getCoverUrl(manga.id)}
               alt=""
               className="h-full w-full scale-110 object-cover opacity-20 blur-3xl"
             />
@@ -207,9 +227,9 @@ export default function MangaDetail() {
 
         <div className="panel relative grid gap-8 p-6 md:grid-cols-[260px_1fr] md:p-8">
           <div className="overflow-hidden rounded-[24px] bg-[var(--surface-2)]">
-            {manga.cover_image ? (
+            {manga.id ? (
               <img
-                src={`${API_BASE.replace('/api/v1', '')}/api/v1/images/cover/${manga.id}`}
+                src={getCoverUrl(manga.id)}
                 alt={manga.title}
                 className="h-full w-full object-cover"
               />
@@ -307,13 +327,13 @@ export default function MangaDetail() {
               </div>
             ) : null}
 
-            {manga.description ? (
+            {description ? (
               <div className="mt-6">
                 <h2 className="mb-2 text-sm font-semibold uppercase tracking-[0.18em] text-muted">
                   Description
                 </h2>
                 <p className="whitespace-pre-line text-sm leading-7 text-[var(--text)]">
-                  {manga.description}
+                  {description}
                 </p>
               </div>
             ) : null}

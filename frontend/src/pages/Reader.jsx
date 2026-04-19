@@ -28,6 +28,20 @@ function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
 
+async function getChapterNeighborSafely(direction, chapterId, signal) {
+  try {
+    if (direction === 'next') {
+      return await chapterApi.getNext(chapterId, { signal });
+    }
+    return await chapterApi.getPrev(chapterId, { signal });
+  } catch (error) {
+    if (error?.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 export default function Reader() {
   const { chapterId } = useParams();
   const navigate = useNavigate();
@@ -128,8 +142,8 @@ export default function Reader() {
 
   const { data: nextChapterData } = useQuery({
     queryKey: ['chapterNext', chapterId],
-    queryFn: ({ signal }) => chapterApi.getNext(chapterId, { signal }),
-    enabled: Boolean(chapterId) && navigator.onLine,
+    queryFn: ({ signal }) => getChapterNeighborSafely('next', chapterId, signal),
+    enabled: Boolean(chapterId) && !isOffline,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
   });
@@ -138,8 +152,8 @@ export default function Reader() {
 
   const { data: prevChapterData } = useQuery({
     queryKey: ['chapterPrev', chapterId],
-    queryFn: ({ signal }) => chapterApi.getPrev(chapterId, { signal }),
-    enabled: Boolean(chapterId) && navigator.onLine,
+    queryFn: ({ signal }) => getChapterNeighborSafely('prev', chapterId, signal),
+    enabled: Boolean(chapterId) && !isOffline,
     staleTime: 60_000,
     refetchOnWindowFocus: false,
   });

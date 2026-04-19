@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { BookOpen, Heart } from 'lucide-react';
 import clsx from 'clsx';
 import ProgressiveImage from './ProgressiveImage';
+import { getCoverUrl } from '../lib/imageUrls';
 
 function normalizeGenres(genre) {
   if (Array.isArray(genre)) return genre;
@@ -32,7 +33,7 @@ function MangaCard({ manga, showProgress = false }) {
       <article className="panel-soft overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow)]">
         <div className="relative aspect-[0.78] overflow-hidden rounded-[20px] bg-[var(--surface-2)]">
           <ProgressiveImage
-            src={manga.cover_image || '/placeholder-cover.jpg'}
+            src={getCoverUrl(manga.id)}
             alt={manga.title}
             className="h-full w-full"
             imgClassName="transition-transform duration-500 group-hover:scale-105"

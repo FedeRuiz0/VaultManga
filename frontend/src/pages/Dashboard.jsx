@@ -13,6 +13,7 @@ import { libraryApi } from '../services/api';
 import StatsCard from '../components/StatsCard';
 import MangaCard from '../components/MangaCard';
 import LoadingScreen from '../components/LoadingScreen';
+import { getCoverUrl } from '../lib/imageUrls';
 
 function safeNumber(value) {
   return Number(value || 0);
@@ -49,9 +50,9 @@ function RecentlyReadCard({ item }) {
           to={`/manga/${mangaId}`}
           className="relative h-28 w-20 flex-shrink-0 overflow-hidden rounded-2xl bg-[var(--surface-2)]"
         >
-          {item.cover_image ? (
+          {mangaId ? (
             <img
-              src={item.cover_image}
+              src={getCoverUrl(mangaId)}
               alt={item.title}
               className="h-full w-full object-cover"
               loading="lazy"
@@ -135,7 +136,7 @@ function ContinueReadingCard({ item }) {
       <div className="grid gap-4 md:grid-cols-[240px_1fr]">
         <div className="relative overflow-hidden rounded-[24px] bg-[var(--surface-2)]">
           <img
-            src={item.cover_image || '/placeholder-cover.jpg'}
+            src={getCoverUrl(item.manga_id || item.id)}
             alt={item.title}
             className="h-full min-h-[190px] w-full object-cover"
             loading="lazy"

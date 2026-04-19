@@ -1,5 +1,6 @@
 const STATIC_CACHE = 'mangavault-static-v1';
 const READER_CACHE = 'mangavault-reader-assets-v1';
+const BACKEND_HOST = 'vaultmanga-production.up.railway.app';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -16,13 +17,18 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   const { request } = event;
+  if (request.method !== 'GET') return;
+
   const url = new URL(request.url);
 
-  const isReaderAsset =
-    url.pathname.startsWith('/api/') ||
-    url.hostname.includes('uploads.mangadex.org') ||
-    url.hostname.includes('mangadex.network');
+  const isSameOrigin = url.origin === self.location.origin;
+  const isBackendApi =
+    url.hostname === BACKEND_HOST &&
+    url.pathname.startsWith('/api/v1/images/');
 
+  if (!isSameOrigin && !isBackendApi) return;
+
+  const isReaderAsset = url.pathname.startsWith('/api/v1/images/');
   if (!isReaderAsset) return;
 
   event.respondWith(
@@ -38,10 +44,10 @@ self.addEventListener('fetch', (event) => {
         }
 
         return response;
-      } catch (error) {
+      } catch {
         const fallback = await caches.match(request);
         if (fallback) return fallback;
-        throw error;
+        return new Response(null, { status: 504, statusText: 'Gateway Timeout' });
       }
     })
   );

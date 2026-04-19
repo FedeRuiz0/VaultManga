@@ -8,6 +8,7 @@ import {
 import clsx from 'clsx';
 import ProgressiveImage from './ProgressiveImage';
 import ChapterNavigator from './ChapterNavigator';
+import { getPageUrl } from '../lib/imageUrls';
 
 /**
  * MangaReader - Ultra smooth Webtoon-style manga reader
@@ -147,7 +148,7 @@ export default function MangaReader({
 
     // Load images (browser will cache them)
     [...nextPages, ...prevPages].forEach(page => {
-      const src = page.url || page.display_path || page.image_path;
+      const src = getPageUrl(page?.id);
       if (src) {
         const img = new Image();
         img.src = src;
@@ -216,7 +217,7 @@ export default function MangaReader({
             className="relative"
           >
             <ProgressiveImage
-              src={page.url || page.display_path || page.image_path}
+              src={getPageUrl(page?.id)}
               alt={`Page ${index + 1}`}
               className={clsx('mx-auto', fitClasses[readerSettings.fitMode])}
               onLoad={() => {

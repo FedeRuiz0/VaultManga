@@ -4,6 +4,7 @@ import { Clock3, Search, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import clsx from 'clsx';
 import { mangaApi } from '../services/api.js';
+import { getCoverUrl } from '../lib/imageUrls.js';
 
 export default function SearchBar({
   value = '',
@@ -124,7 +125,7 @@ export default function SearchBar({
                   >
                     <div className="h-12 w-10 overflow-hidden rounded-xl bg-[var(--surface-2)]">
                       <img
-                        src={item.cover_image || item.cover || '/placeholder-cover.jpg'}
+                        src={getCoverUrl(item.id)}
                         alt={item.title}
                         className="h-full w-full object-cover"
                         loading="lazy"
