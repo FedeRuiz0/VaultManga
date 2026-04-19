@@ -27,7 +27,31 @@ router.get('/chapter/:chapterId', async (req, res, next) => {
 
     const cached = await mangaCache.getPages(chapterId);
     if (cached) {
-      return res.json(cached);
+      if (cached.every((page) => Boolean(page.id))) {
+        return res.json(cached);
+      }
+      await mangaCache.cacheDelete(`pages:${chapterId}`);
+      console.warn('[pages] invalid cached payload without id', { chapterId });
+    }
+
+    const existingPages = await query(
+      `
+      SELECT id, chapter_id, page_number, image_path, image_url, display_path, is_cached
+      FROM pages
+      WHERE chapter_id = $1
+      ORDER BY page_number ASC
+      `,
+      [chapterId]
+    );
+
+    if (existingPages.rows.length > 0) {
+      await mangaCache.setPages(chapterId, existingPages.rows);
+      console.log('[pages] chapter response', {
+        chapterId,
+        count: existingPages.rows.length,
+        hasId: existingPages.rows.every((page) => Boolean(page.id)),
+      });
+      return res.json(existingPages.rows);
     }
 
     const pageUrls = await mangadexService.fetchPages(mangadexChapterId);
@@ -36,7 +60,7 @@ router.get('/chapter/:chapterId', async (req, res, next) => {
       return res.json([]);
     }
 
-    const pages = pageUrls.map((imageUrl, index) => ({
+    const pagesToUpsert = pageUrls.map((imageUrl, index) => ({
       chapter_id: chapterId,
       page_number: index + 1,
       image_url: imageUrl,
@@ -45,8 +69,9 @@ router.get('/chapter/:chapterId', async (req, res, next) => {
       is_cached: false,
     }));
 
-    for (const page of pages) {
-      await query(
+    const pages = [];
+    for (const page of pagesToUpsert) {
+      const upsertedPage = await query(
         `
         INSERT INTO pages (chapter_id, page_number, image_path, image_url, is_cached)
         VALUES ($1, $2, $3, $4, FALSE)
@@ -54,9 +79,11 @@ router.get('/chapter/:chapterId', async (req, res, next) => {
         DO UPDATE SET
           image_path = EXCLUDED.image_path,
           image_url = EXCLUDED.image_url
+        RETURNING id, chapter_id, page_number, image_path, image_url, display_path, is_cached
         `,
         [chapterId, page.page_number, page.image_path, page.image_url]
       );
+      pages.push(upsertedPage.rows[0]);
     }
 
     await query(
@@ -71,6 +98,11 @@ router.get('/chapter/:chapterId', async (req, res, next) => {
     );
 
     await mangaCache.setPages(chapterId, pages);
+    console.log('[pages] chapter response', {
+      chapterId,
+      count: pages.length,
+      hasId: pages.every((page) => Boolean(page.id)),
+    });
     res.json(pages);
   } catch (error) {
     next(error);
