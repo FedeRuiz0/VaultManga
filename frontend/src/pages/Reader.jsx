@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
+import { getPageUrl } from '../lib/imageUrls';
 import {
   ArrowLeft,
   BookOpen,
@@ -615,7 +616,7 @@ export default function Reader() {
                 <img
                   loading={index <= 1 ? 'eager' : 'lazy'}
                   decoding="async"
-                  src={page.url || page.display_path || page.image_path}
+                  src={getPageUrl(page.id)}
                   alt={`Page ${index + 1}`}
                   className="h-auto w-full rounded-3xl border border-[var(--border)] bg-[var(--surface)] shadow-[var(--shadow-soft)]"
                   onLoad={() => {

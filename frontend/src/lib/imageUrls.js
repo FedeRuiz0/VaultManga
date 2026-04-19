@@ -1,5 +1,6 @@
 const BACKEND_ORIGIN =
-  (import.meta.env.VITE_API_BASE_URL || 'https://vaultmanga-production.up.railway.app/api/v1')
+  (import.meta.env.VITE_API_BASE_URL ||
+    'https://vaultmanga-production.up.railway.app/api/v1')
     .replace('/api/v1', '');
 
 export function getCoverUrl(mangaId) {

@@ -1,4 +1,5 @@
 import { chapterApi, libraryApi, pageApi } from '../services/api';
+import { getPageUrl } from '../lib/imageUrls';
 
 const STORAGE_KEYS = {
   queue: 'mv_offline_progress_queue_v1',
@@ -253,10 +254,10 @@ export async function fetchPagesWithOfflineFallback(chapterId, options = {}) {
     saveOfflineChapterPages(chapterId, pages);
 
     await cacheReaderAssets(
-      pages
-        .map((page) => page.url || page.display_path || page.image_path)
-        .filter(Boolean)
-    );
+  pages
+    .map((page) => page?.id ? getPageUrl(page.id) : null)
+    .filter(Boolean)
+);
 
     return pages;
   } catch (error) {
@@ -297,10 +298,11 @@ export async function prefetchChapterForOffline(chapterId) {
     saveOfflineChapterPages(chapterId, pages);
 
     await cacheReaderAssets(
-      pages
-        .map((page) => page.url || page.display_path || page.image_path)
-        .filter(Boolean)
-    );
+  pages
+    .map((page) => page?.id ? getPageUrl(page.id) : null)
+    .filter(Boolean)
+);
+
   } catch (error) {
     console.warn('[offlineReader] prefetch failed', chapterId, error);
   }
