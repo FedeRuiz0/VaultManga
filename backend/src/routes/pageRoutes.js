@@ -36,7 +36,7 @@ router.get('/chapter/:chapterId', async (req, res, next) => {
 
     const existingPages = await query(
       `
-      SELECT id, chapter_id, page_number, image_path, image_url, display_path, is_cached
+      SELECT id, chapter_id, page_number, image_path, image_url, is_cached
       FROM pages
       WHERE chapter_id = $1
       ORDER BY page_number ASC
@@ -65,7 +65,6 @@ router.get('/chapter/:chapterId', async (req, res, next) => {
       page_number: index + 1,
       image_url: imageUrl,
       image_path: imageUrl,
-      display_path: imageUrl,
       is_cached: false,
     }));
 
@@ -79,7 +78,7 @@ router.get('/chapter/:chapterId', async (req, res, next) => {
         DO UPDATE SET
           image_path = EXCLUDED.image_path,
           image_url = EXCLUDED.image_url
-        RETURNING id, chapter_id, page_number, image_path, image_url, display_path, is_cached
+        RETURNING id, chapter_id, page_number, image_path, image_url, is_cached
         `,
         [chapterId, page.page_number, page.image_path, page.image_url]
       );
