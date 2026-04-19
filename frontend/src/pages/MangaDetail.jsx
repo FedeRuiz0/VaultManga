@@ -198,7 +198,7 @@ export default function MangaDetail() {
           <div className="absolute inset-0 overflow-hidden rounded-[28px]">
             <div className="absolute inset-0 bg-gradient-to-t from-[var(--bg)] via-[var(--bg)]/80 to-transparent" />
             <img
-              src={manga.cover_image}
+              src={`${API_BASE.replace('/api/v1', '')}/api/v1/images/cover/${manga.id}`}
               alt=""
               className="h-full w-full scale-110 object-cover opacity-20 blur-3xl"
             />
@@ -209,7 +209,7 @@ export default function MangaDetail() {
           <div className="overflow-hidden rounded-[24px] bg-[var(--surface-2)]">
             {manga.cover_image ? (
               <img
-                src={manga.cover_image}
+                src={`${API_BASE.replace('/api/v1', '')}/api/v1/images/cover/${manga.id}`}
                 alt={manga.title}
                 className="h-full w-full object-cover"
               />

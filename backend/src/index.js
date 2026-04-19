@@ -2,6 +2,7 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
+import imageRoutes from './routes/imageRoutes.js';
 import http from 'http';
 
 import { initDatabase } from './db/database.js';
@@ -80,6 +81,7 @@ app.get('/', (req, res) => {
 });
 
 app.use('/api/v1/manga', mangaRoutes);
+app.use('/api/v1/images', imageRoutes);
 app.use('/api/v1/chapters', chapterRoutes);
 app.use('/api/v1/pages', pageRoutes);
 app.use('/api/v1/library', libraryRoutes);
