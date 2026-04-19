@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Filter, RotateCcw } from 'lucide-react';
@@ -34,10 +35,13 @@ function normalizeGenres(genre) {
 
 export default function Library() {
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const initialSearchParam = searchParams.get('search')?.trim() || '';
 
   const [page, setPage] = useState(1);
-  const [searchInput, setSearchInput] = useState('');
-  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState(initialSearchParam);
+  const [search, setSearch] = useState(initialSearchParam);
   const [sort, setSort] = useState('last_read_at');
   const [order, setOrder] = useState('DESC');
   const [selectedStatus, setSelectedStatus] = useState('');
@@ -48,14 +52,38 @@ export default function Library() {
 
   const yearOptions = useMemo(() => buildYearOptions(), []);
 
+
+  useEffect(() => {
+    const nextSearch = searchParams.get('search')?.trim() || '';
+    if (nextSearch !== searchInput) {
+      setSearchInput(nextSearch);
+      setSearch(nextSearch);
+      setPage(1);
+    }
+  }, [searchParams]);
+
   useEffect(() => {
     const timer = setTimeout(() => {
-      setSearch(searchInput.trim());
+      const nextSearch = searchInput.trim();
+      setSearch(nextSearch);
       setPage(1);
+
+      const nextParams = new URLSearchParams(searchParams);
+      if (nextSearch) {
+        nextParams.set('search', nextSearch);
+      } else {
+        nextParams.delete('search');
+      }
+
+      const current = searchParams.toString();
+      const upcoming = nextParams.toString();
+      if (current !== upcoming) {
+        setSearchParams(nextParams, { replace: true });
+      }
     }, 350);
 
     return () => clearTimeout(timer);
-  }, [searchInput]);
+  }, [searchInput, searchParams, setSearchParams]);
 
   const genresQuery = useQuery({
     queryKey: ['libraryGenres'],
@@ -209,6 +237,7 @@ export default function Library() {
     setFavoritesOnly(false);
     setIncompleteOnly(false);
     setPage(1);
+    setSearchParams({}, { replace: true });
   };
 
   const isInitialLoading = mangaQuery.isLoading && !mangaQuery.data;

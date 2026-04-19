@@ -178,6 +178,7 @@ export default function Reader() {
 
   const totalPages = pages.length;
 
+  // read_progress ahora significa "páginas leídas"
   const savedPage = useMemo(() => {
     if (!chapter || totalPages === 0) return 0;
 
