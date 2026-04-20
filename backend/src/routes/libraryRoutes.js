@@ -221,9 +221,18 @@ router.post('/start-reading', async (req, res, next) => {
     const manga_id = req.body?.manga_id;
     const page_number = normalizePageNumber(req.body?.page_number, 0);
 
-    if (!chapter_id || !manga_id) {
-      return res.status(400).json({ error: 'Chapter ID and Manga ID are required' });
+    if (!chapter_id) {
+      return res.status(400).json({ error: 'Chapter ID is required' });
     }
+
+    const chapterRecord = await queryOne(
+      'SELECT id, manga_id FROM chapters WHERE id = $1',
+      [chapter_id]
+    );
+    if (!chapterRecord) {
+      return res.status(404).json({ error: 'Chapter not found' });
+    }
+    const effectiveMangaId = chapterRecord.manga_id;
 
     const existingSession = await queryOne(
       `
@@ -235,7 +244,7 @@ router.post('/start-reading', async (req, res, next) => {
       ORDER BY started_at DESC
       LIMIT 1
       `,
-      [manga_id, chapter_id]
+      [effectiveMangaId, chapter_id]
     );
 
     const session =
@@ -246,14 +255,20 @@ router.post('/start-reading', async (req, res, next) => {
         VALUES ($1, $2, $3)
         RETURNING *
         `,
-        [manga_id, chapter_id, page_number]
+        [effectiveMangaId, chapter_id, page_number]
       ));
 
     const chapter = await updateChapterProgress(chapter_id, page_number);
     if (!chapter) {
       return res.status(404).json({ error: 'Chapter not found' });
     }
-    const effectiveMangaId = chapter.manga_id || manga_id;
+    if (manga_id && manga_id !== effectiveMangaId) {
+      console.warn('[library] start-reading payload manga_id mismatch', {
+        chapter_id,
+        payloadMangaId: manga_id,
+        chapterMangaId: effectiveMangaId,
+      });
+    }
 
     await query(
       `
@@ -295,15 +310,30 @@ router.post('/progress', async (req, res, next) => {
     const manga_id = req.body?.manga_id;
     const page_number = normalizePageNumber(req.body?.page_number, 0);
 
-    if (!chapter_id || !manga_id) {
-      return res.status(400).json({ error: 'Chapter ID and Manga ID are required' });
+    if (!chapter_id) {
+      return res.status(400).json({ error: 'Chapter ID is required' });
     }
+
+    const chapterRecord = await queryOne(
+      'SELECT id, manga_id FROM chapters WHERE id = $1',
+      [chapter_id]
+    );
+    if (!chapterRecord) {
+      return res.status(404).json({ error: 'Chapter not found' });
+    }
+    const effectiveMangaId = chapterRecord.manga_id;
 
     const chapter = await updateChapterProgress(chapter_id, page_number);
     if (!chapter) {
       return res.status(404).json({ error: 'Chapter not found' });
     }
-    const effectiveMangaId = chapter.manga_id || manga_id;
+    if (manga_id && manga_id !== effectiveMangaId) {
+      console.warn('[library] progress payload manga_id mismatch', {
+        chapter_id,
+        payloadMangaId: manga_id,
+        chapterMangaId: effectiveMangaId,
+      });
+    }
 
     await query(
       `
