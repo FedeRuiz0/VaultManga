@@ -4,6 +4,11 @@ import { mangaCache } from '../db/redis.js';
 import mangadexService from '../services/mangadex.service.js';
 import { extractMangaDexUuid, normalizeMangaDexSourcePath } from '../utils/mangadexSourcePath.js';
 import { authenticateToken } from './authRoutes.js';
+import {
+  emitLibraryUpdated,
+  emitReadingUpdated,
+  emitRecommendationsUpdated,
+} from '../realtime/socket.js';
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -181,6 +186,16 @@ router.patch('/:id/read', async (req, res, next) => {
 
     await mangaCache.invalidateChapters(chapterBase.manga_id);
     await mangaCache.invalidateManga(chapterBase.manga_id);
+
+    emitReadingUpdated({
+      type: 'mark-read',
+      user_id: userId,
+      manga_id: chapterBase.manga_id,
+      chapter_id: id,
+      page_number: targetPage,
+    });
+    emitLibraryUpdated({ type: 'overview-changed', user_id: userId });
+    emitRecommendationsUpdated({ type: 'profile-changed', user_id: userId });
 
     res.json({ success: true, chapter_id: id, page_number: targetPage });
   } catch (error) {

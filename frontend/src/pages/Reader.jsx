@@ -203,6 +203,74 @@ export default function Reader() {
     return Math.min(currentPageRef.current + 1, totalPages);
   }, [totalPages]);
 
+  const syncReadingProgressCache = useCallback(
+    ({ chapterId: nextChapterId, mangaId, pagesRead, totalPages: nextTotalPages }) => {
+      if (!nextChapterId) return;
+
+      const normalizedPagesRead = Math.max(0, Number(pagesRead || 0));
+      const resolvedTotalPages = Math.max(0, Number(nextTotalPages || 0));
+      const isRead = resolvedTotalPages > 0 && normalizedPagesRead >= resolvedTotalPages;
+
+      queryClient.setQueryData(['chapter', nextChapterId], (existing) => {
+        if (!existing) return existing;
+
+        if (existing?.data) {
+          return {
+            ...existing,
+            data: {
+              ...existing.data,
+              read_progress: Math.max(Number(existing.data?.read_progress || 0), normalizedPagesRead),
+              is_read: existing.data?.is_read || isRead,
+            },
+          };
+        }
+
+        return {
+          ...existing,
+          read_progress: Math.max(Number(existing?.read_progress || 0), normalizedPagesRead),
+          is_read: existing?.is_read || isRead,
+        };
+      });
+
+      if (mangaId) {
+        queryClient.setQueriesData(
+          {
+            predicate: (query) => query.queryKey?.[0] === 'chapters' && query.queryKey?.[1] === mangaId,
+          },
+          (existing) => {
+            if (!existing) return existing;
+
+            const updateChapterList = (list) => {
+              if (!Array.isArray(list)) return list;
+              return list.map((item) => {
+                if (item?.id !== nextChapterId) return item;
+
+                const chapterPageCount = Math.max(0, Number(item?.page_count || resolvedTotalPages));
+                const chapterIsRead = chapterPageCount > 0 && normalizedPagesRead >= chapterPageCount;
+
+                return {
+                  ...item,
+                  read_progress: Math.max(Number(item?.read_progress || 0), normalizedPagesRead),
+                  is_read: item?.is_read || chapterIsRead,
+                };
+              });
+            };
+
+            if (existing?.data) {
+              return {
+                ...existing,
+                data: updateChapterList(existing.data),
+              };
+            }
+
+            return updateChapterList(existing);
+          }
+        );
+      }
+    },
+    [queryClient]
+  );
+
   const invalidateReadingQueries = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: ['libraryOverview'], exact: true });
     queryClient.invalidateQueries({ queryKey: ['libraryManga'] });
@@ -212,8 +280,7 @@ export default function Reader() {
     if (chapter?.manga_id) {
       queryClient.invalidateQueries({ queryKey: ['manga', chapter.manga_id], exact: true });
       queryClient.invalidateQueries({
-        queryKey: ['chapters', chapter.manga_id, 'reader-nav'],
-        exact: true,
+        predicate: (query) => query.queryKey?.[0] === 'chapters' && query.queryKey?.[1] === chapter.manga_id,
       });
     }
 
@@ -236,6 +303,26 @@ export default function Reader() {
 
   const progressMutation = useMutation({
     mutationFn: (payload) => libraryApi.progress(payload),
+    onMutate: (payload) => {
+      syncReadingProgressCache({
+        chapterId: payload?.chapter_id,
+        mangaId: payload?.manga_id,
+        pagesRead: payload?.page_number,
+        totalPages,
+      });
+    },
+    onSuccess: (_response, payload) => {
+      syncReadingProgressCache({
+        chapterId: payload?.chapter_id,
+        mangaId: payload?.manga_id,
+        pagesRead: payload?.page_number,
+        totalPages,
+      });
+
+      queryClient.invalidateQueries({ queryKey: ['libraryOverview'], exact: true });
+      queryClient.invalidateQueries({ queryKey: ['recentReadPage'] });
+      queryClient.invalidateQueries({ queryKey: ['history'] });
+    },
   });
 
   const endReadingMutation = useMutation({
@@ -250,6 +337,12 @@ export default function Reader() {
   const markReadMutation = useMutation({
     mutationFn: () => chapterApi.markRead(chapterId),
     onSuccess: () => {
+      syncReadingProgressCache({
+        chapterId,
+        mangaId: chapter?.manga_id,
+        pagesRead: totalPages,
+        totalPages,
+      });
       invalidateReadingQueries();
     },
   });

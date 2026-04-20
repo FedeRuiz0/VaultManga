@@ -20,8 +20,10 @@ export function useRealtimeSync() {
         predicate: (query) => query.queryKey?.[0] === 'chapter',
       });
       queryClient.invalidateQueries({
-        predicate: (query) =>
-          query.queryKey?.[0] === 'chapters' && query.queryKey?.[2] === 'reader-nav',
+        predicate: (query) => query.queryKey?.[0] === 'chapters',
+      });
+      queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey?.[0] === 'manga',
       });
     };
 
