@@ -64,6 +64,7 @@ export default function Reader() {
   const currentPageRef = useRef(0);
   const restoredProgressRef = useRef(false);
   const lastSyncedPageRef = useRef(0);
+  const startRequestedRef = useRef(false);
 
   useEffect(() => {
     currentPageRef.current = currentPage;
@@ -224,6 +225,12 @@ export default function Reader() {
     onSuccess: (session) => {
       readingSessionIdRef.current = session?.id || null;
       readingStartedAtRef.current = Date.now();
+      if (!session?.id) {
+        startRequestedRef.current = false;
+      }
+    },
+    onError: () => {
+      startRequestedRef.current = false;
     },
   });
 
@@ -274,6 +281,7 @@ export default function Reader() {
     readingSessionIdRef.current = null;
     readingStartedAtRef.current = null;
     lastSyncedPageRef.current = 0;
+    startRequestedRef.current = false;
     currentPageRef.current = 0;
     pageRefs.current = [];
     setCurrentPage(0);
@@ -324,7 +332,8 @@ export default function Reader() {
     readingStartedAtRef.current = Date.now();
 
     if (navigator.onLine) {
-      if (!readingSessionIdRef.current) {
+      if (!readingSessionIdRef.current && !startRequestedRef.current) {
+        startRequestedRef.current = true;
         lastSyncedPageRef.current = savedPage + 1;
         startReadingMutation.mutate({
           manga_id: chapter.manga_id,
@@ -374,7 +383,7 @@ export default function Reader() {
 
     progressTimerRef.current = setTimeout(() => {
       const pagesRead = getPagesReadForStorage();
-      if (pagesRead === lastSyncedPageRef.current) {
+      if (pagesRead <= 0 || pagesRead === lastSyncedPageRef.current) {
         return;
       }
 
@@ -395,6 +404,7 @@ export default function Reader() {
           completed: false,
           durationSeconds: 0,
         });
+        lastSyncedPageRef.current = pagesRead;
       }
     }, 1_200);
 

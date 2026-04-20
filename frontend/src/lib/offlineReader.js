@@ -175,10 +175,21 @@ export async function flushOfflineProgressQueue() {
 
   for (const [key, item] of items) {
     try {
+      const chapter = await chapterApi.getById(item.chapterId);
+      const remotePage = Number(chapter?.read_progress || 0);
+      const remoteComplete = Boolean(chapter?.is_read);
+      const queuedPage = Number(item.pageNumber || 0);
+      const queuedComplete = Boolean(item.completed);
+
+      if (remoteComplete || (remotePage >= queuedPage && (!queuedComplete || remoteComplete))) {
+        clearQueuedOfflineProgress(key);
+        continue;
+      }
+
       const startPayload = {
         manga_id: item.mangaId,
         chapter_id: item.chapterId,
-        page_number: item.pageNumber || 0,
+        page_number: queuedPage,
       };
 
       const session = await libraryApi.startReading(startPayload);
@@ -191,7 +202,7 @@ export async function flushOfflineProgressQueue() {
       if (session?.id) {
         await libraryApi.endReading({
           session_id: session.id,
-          end_page: item.pageNumber || 0,
+          end_page: queuedPage,
           duration_seconds: item.durationSeconds || 0,
         });
       }

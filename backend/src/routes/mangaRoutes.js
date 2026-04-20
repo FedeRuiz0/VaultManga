@@ -151,7 +151,7 @@ router.get('/', async (req, res, next) => {
         OR m.artist ILIKE $${paramIndex}
         OR EXISTS (
           SELECT 1
-          FROM jsonb_array_elements_text(COALESCE(m.alt_titles::jsonb, '[]'::jsonb)) AS alt_title
+          FROM unnest(COALESCE(m.alt_titles, ARRAY[]::text[])) AS alt_title
           WHERE alt_title ILIKE $${paramIndex}
         )
       )`;

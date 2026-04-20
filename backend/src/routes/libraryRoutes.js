@@ -15,6 +15,33 @@ function normalizePageNumber(value, fallback = 0) {
   return Math.max(0, Math.floor(parsed));
 }
 
+async function updateChapterProgress(chapterId, pageNumber) {
+  return queryOne(
+    `
+    UPDATE chapters
+    SET
+      read_progress = CASE
+        WHEN COALESCE(page_count, 0) > 0 THEN LEAST(
+          GREATEST(COALESCE(read_progress, 0), $2),
+          page_count
+        )
+        ELSE GREATEST(COALESCE(read_progress, 0), $2)
+      END,
+      is_read = CASE
+        WHEN COALESCE(page_count, 0) > 0 THEN
+          LEAST(GREATEST(COALESCE(read_progress, 0), $2), page_count) >= page_count
+        ELSE is_read
+      END,
+      first_read_at = COALESCE(first_read_at, CURRENT_TIMESTAMP),
+      last_read_at = CURRENT_TIMESTAMP,
+      updated_at = CURRENT_TIMESTAMP
+    WHERE id = $1
+    RETURNING id, manga_id, read_progress, page_count, is_read
+    `,
+    [chapterId, pageNumber]
+  );
+}
+
 router.get('/overview', async (req, res, next) => {
   try {
     const overview = await queryOne(`
@@ -198,25 +225,31 @@ router.post('/start-reading', async (req, res, next) => {
       return res.status(400).json({ error: 'Chapter ID and Manga ID are required' });
     }
 
-    const session = await queryOne(
+    const existingSession = await queryOne(
       `
-      INSERT INTO reading_sessions (manga_id, chapter_id, start_page)
-      VALUES ($1, $2, $3)
-      RETURNING *
+      SELECT *
+      FROM reading_sessions
+      WHERE manga_id = $1
+        AND chapter_id = $2
+        AND ended_at IS NULL
+      ORDER BY started_at DESC
+      LIMIT 1
       `,
-      [manga_id, chapter_id, page_number]
+      [manga_id, chapter_id]
     );
 
-    await query(
-      `
-      UPDATE chapters SET
-        last_read_at = CURRENT_TIMESTAMP,
-        read_progress = GREATEST(COALESCE(read_progress, 0), $2),
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $1
-      `,
-      [chapter_id, page_number]
-    );
+    const session =
+      existingSession ||
+      (await queryOne(
+        `
+        INSERT INTO reading_sessions (manga_id, chapter_id, start_page)
+        VALUES ($1, $2, $3)
+        RETURNING *
+        `,
+        [manga_id, chapter_id, page_number]
+      ));
+
+    await updateChapterProgress(chapter_id, page_number);
 
     await query(
       `
@@ -260,16 +293,7 @@ router.post('/progress', async (req, res, next) => {
       return res.status(400).json({ error: 'Chapter ID and Manga ID are required' });
     }
 
-    await query(
-      `
-      UPDATE chapters SET
-        read_progress = GREATEST(COALESCE(read_progress, 0), $2),
-        last_read_at = CURRENT_TIMESTAMP,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $1
-      `,
-      [chapter_id, page_number]
-    );
+    await updateChapterProgress(chapter_id, page_number);
 
     await query(
       `
@@ -316,9 +340,9 @@ router.post('/end-reading', async (req, res, next) => {
     const session = await queryOne(
       `
       UPDATE reading_sessions SET
-        end_page = $2,
-        duration_seconds = $3,
-        ended_at = CURRENT_TIMESTAMP
+        end_page = GREATEST(COALESCE(end_page, 0), $2),
+        duration_seconds = GREATEST(COALESCE(duration_seconds, 0), $3),
+        ended_at = COALESCE(ended_at, CURRENT_TIMESTAMP)
       WHERE id = $1
       RETURNING *
       `,
@@ -330,16 +354,7 @@ router.post('/end-reading', async (req, res, next) => {
     }
 
     if (session.chapter_id) {
-      await query(
-        `
-        UPDATE chapters SET
-          read_progress = GREATEST(COALESCE(read_progress, 0), $2),
-          last_read_at = CURRENT_TIMESTAMP,
-          updated_at = CURRENT_TIMESTAMP
-        WHERE id = $1
-        `,
-        [session.chapter_id, end_page]
-      );
+      await updateChapterProgress(session.chapter_id, end_page);
     }
 
     if (session.manga_id) {
