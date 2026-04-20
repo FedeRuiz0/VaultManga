@@ -181,6 +181,11 @@ export async function flushOfflineProgressQueue() {
       const queuedPage = Number(item.pageNumber || 0);
       const queuedComplete = Boolean(item.completed);
 
+      if (queuedPage <= 0 && !queuedComplete) {
+        clearQueuedOfflineProgress(key);
+        continue;
+      }
+
       if (remoteComplete || (remotePage >= queuedPage && (!queuedComplete || remoteComplete))) {
         clearQueuedOfflineProgress(key);
         continue;

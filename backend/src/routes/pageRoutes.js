@@ -172,25 +172,27 @@ router.post('/bulk', async (req, res, next) => {
 router.get('/prefetch/:chapterId', async (req, res, next) => {
   try {
     const { chapterId } = req.params;
-    const { count = 5 } = req.query;
+    const parsedCount = Number.parseInt(req.query.count, 10);
+    const count = Number.isFinite(parsedCount) && parsedCount > 0 ? parsedCount : 5;
 
     const redis = getRedis();
     const pages = [];
 
-for await (const key of redis.scanIterator({
-  MATCH: `prefetch:${chapterId}:*`,
-})) {
-  const data = await redis.get(key);
-  if (data) pages.push(JSON.parse(data));
-}
-
-    const prefetched = [];
-    for (const key of keys.slice(0, parseInt(count, 10))) {
+    for await (const key of redis.scanIterator({
+      MATCH: `prefetch:${chapterId}:*`,
+    })) {
       const data = await redis.get(key);
-      if (data) {
-        prefetched.push(JSON.parse(data));
+      if (!data) continue;
+      try {
+        pages.push(JSON.parse(data));
+      } catch (parseError) {
+        console.warn('[pages] invalid prefetch payload', { chapterId, key, parseError });
       }
     }
+
+    const prefetched = pages
+      .sort((a, b) => Number(a?.page_number || 0) - Number(b?.page_number || 0))
+      .slice(0, count);
 
     res.json(prefetched);
   } catch (error) {

@@ -249,7 +249,11 @@ router.post('/start-reading', async (req, res, next) => {
         [manga_id, chapter_id, page_number]
       ));
 
-    await updateChapterProgress(chapter_id, page_number);
+    const chapter = await updateChapterProgress(chapter_id, page_number);
+    if (!chapter) {
+      return res.status(404).json({ error: 'Chapter not found' });
+    }
+    const effectiveMangaId = chapter.manga_id || manga_id;
 
     await query(
       `
@@ -258,22 +262,24 @@ router.post('/start-reading', async (req, res, next) => {
         updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
       `,
-      [manga_id]
+      [effectiveMangaId]
     );
 
-    await query(
-      `
-      INSERT INTO reading_history (manga_id, chapter_id, page_number)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (user_id, chapter_id, page_number) DO NOTHING
-      `,
-      [manga_id, chapter_id, page_number]
-    );
+    if (page_number > 0) {
+      await query(
+        `
+        INSERT INTO reading_history (manga_id, chapter_id, page_number)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (user_id, chapter_id, page_number) DO NOTHING
+        `,
+        [effectiveMangaId, chapter_id, page_number]
+      );
+    }
 
-    await mangaCache.invalidateManga(manga_id);
-    await mangaCache.invalidateChapters(manga_id);
+    await mangaCache.invalidateManga(effectiveMangaId);
+    await mangaCache.invalidateChapters(effectiveMangaId);
 
-    emitReadingUpdated({ type: 'start-reading', manga_id, chapter_id, page_number });
+    emitReadingUpdated({ type: 'start-reading', manga_id: effectiveMangaId, chapter_id, page_number });
     emitLibraryUpdated({ type: 'overview-changed' });
     emitRecommendationsUpdated({ type: 'profile-changed' });
 
@@ -293,7 +299,11 @@ router.post('/progress', async (req, res, next) => {
       return res.status(400).json({ error: 'Chapter ID and Manga ID are required' });
     }
 
-    await updateChapterProgress(chapter_id, page_number);
+    const chapter = await updateChapterProgress(chapter_id, page_number);
+    if (!chapter) {
+      return res.status(404).json({ error: 'Chapter not found' });
+    }
+    const effectiveMangaId = chapter.manga_id || manga_id;
 
     await query(
       `
@@ -302,22 +312,24 @@ router.post('/progress', async (req, res, next) => {
         updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
       `,
-      [manga_id]
+      [effectiveMangaId]
     );
 
-    await query(
-      `
-      INSERT INTO reading_history (manga_id, chapter_id, page_number)
-      VALUES ($1, $2, $3)
-      ON CONFLICT (user_id, chapter_id, page_number) DO NOTHING
-      `,
-      [manga_id, chapter_id, page_number]
-    );
+    if (page_number > 0) {
+      await query(
+        `
+        INSERT INTO reading_history (manga_id, chapter_id, page_number)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (user_id, chapter_id, page_number) DO NOTHING
+        `,
+        [effectiveMangaId, chapter_id, page_number]
+      );
+    }
 
-    await mangaCache.invalidateManga(manga_id);
-    await mangaCache.invalidateChapters(manga_id);
+    await mangaCache.invalidateManga(effectiveMangaId);
+    await mangaCache.invalidateChapters(effectiveMangaId);
 
-    emitReadingUpdated({ type: 'progress', manga_id, chapter_id, page_number });
+    emitReadingUpdated({ type: 'progress', manga_id: effectiveMangaId, chapter_id, page_number });
     emitLibraryUpdated({ type: 'overview-changed' });
     emitRecommendationsUpdated({ type: 'profile-changed' });
 
