@@ -21,13 +21,23 @@ function resolveAuthToken() {
 }
 
 export function getSocket() {
+  const token = resolveAuthToken();
+
   if (!socket) {
     socket = io(resolveSocketUrl(), {
       transports: ['websocket', 'polling'],
       auth: {
-        token: resolveAuthToken(),
+        token,
       },
     });
+  } else {
+    const currentToken = socket.auth?.token || null;
+    if (currentToken !== token) {
+      socket.auth = { ...socket.auth, token };
+      if (socket.connected) {
+        socket.disconnect().connect();
+      }
+    }
   }
 
   return socket;

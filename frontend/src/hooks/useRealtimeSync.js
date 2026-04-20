@@ -1,15 +1,20 @@
 import { useEffect } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { getSocket } from '../lib/socket';
+import { useAuthStore } from '../stores/authStore';
 
 export function useRealtimeSync() {
   const queryClient = useQueryClient();
+  const token = useAuthStore((state) => state.token);
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
 
   useEffect(() => {
+    if (!isAuthenticated || !token) return undefined;
+
     const socket = getSocket();
 
-    socket.emit('library:subscribe');
-    socket.emit('recommendations:subscribe');
+    socket.emit('library:subscribe', { token });
+    socket.emit('recommendations:subscribe', { token });
 
     const refreshLibrary = () => {
       queryClient.invalidateQueries({ queryKey: ['libraryOverview'] });
@@ -41,5 +46,5 @@ export function useRealtimeSync() {
       socket.off('reading:updated', refreshLibrary);
       socket.off('recommendations:updated', refreshRecommendations);
     };
-  }, [queryClient]);
+  }, [isAuthenticated, queryClient, token]);
 }

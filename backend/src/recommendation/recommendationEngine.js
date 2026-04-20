@@ -31,9 +31,9 @@ async function getRecommendationFeedback() {
   return feedback;
 }
 
-export async function generateRecommendations(limit = 12) {
+export async function generateRecommendations(limit = 12, userId = null) {
   const [profile, feedback, mangaList] = await Promise.all([
-    buildUserPreferenceProfile(),
+    buildUserPreferenceProfile(userId),
     getRecommendationFeedback(),
     queryAll(`
       SELECT

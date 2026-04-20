@@ -2,13 +2,15 @@ import express from 'express';
 import { query, queryAll } from '../db/database.js';
 import { generateRecommendations } from '../recommendation/recommendationEngine.js';
 import { emitRecommendationsUpdated } from '../realtime/socket.js';
+import { authenticateToken } from './authRoutes.js';
 
 const router = express.Router();
+router.use(authenticateToken);
 
 router.get('/', async (req, res, next) => {
   try {
     const limit = Number(req.query.limit || 12);
-    const result = await generateRecommendations(limit);
+    const result = await generateRecommendations(limit, req.user.id);
     res.json(result);
   } catch (error) {
     next(error);
@@ -17,7 +19,7 @@ router.get('/', async (req, res, next) => {
 
 router.get('/profile', async (req, res, next) => {
   try {
-    const result = await generateRecommendations(8);
+    const result = await generateRecommendations(8, req.user.id);
     res.json(result.profile);
   } catch (error) {
     next(error);

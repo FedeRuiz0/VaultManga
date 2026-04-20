@@ -401,8 +401,8 @@ export const settingsApi = {
   },
 
   reset(options = {}) {
-    return request('/settings/reset', {
-      method: 'POST',
+    return request('/settings', {
+      method: 'DELETE',
       signal: options.signal,
     });
   },

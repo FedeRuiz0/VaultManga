@@ -13,14 +13,26 @@ function normalizeGenreList(genre) {
   return [];
 }
 
-export async function buildUserPreferenceProfile() {
-  const favorites = await queryAll(`
-    SELECT id, title, genre, status, year, author, artist
-    FROM manga
-    WHERE is_favorite = true
-  `);
+export async function buildUserPreferenceProfile(userId = null) {
+  const scopedFavoritesSql = userId
+    ? `
+      SELECT DISTINCT m.id, m.title, m.genre, m.status, m.year, m.author, m.artist
+      FROM manga m
+      JOIN reading_history rh ON rh.manga_id = m.id
+      WHERE rh.user_id = $1
+    `
+    : `
+      SELECT id, title, genre, status, year, author, artist
+      FROM manga
+      WHERE is_favorite = true
+    `;
 
-  const readingStats = await queryAll(`
+  const favorites = await queryAll(`
+    ${scopedFavoritesSql}
+  `, userId ? [userId] : []);
+
+  const readingStats = await queryAll(
+    `
     SELECT
       m.id,
       m.title,
@@ -30,12 +42,22 @@ export async function buildUserPreferenceProfile() {
       m.author,
       m.artist,
       COUNT(c.id)::int AS total_chapters,
-      COUNT(*) FILTER (WHERE c.is_read = true)::int AS read_chapters,
-      COALESCE(MAX(c.last_read_at), m.last_read_at) AS last_activity
+      COUNT(*) FILTER (
+        WHERE COALESCE(c.page_count, 0) > 0 AND COALESCE(progress.max_page, 0) >= c.page_count
+      )::int AS read_chapters,
+      COALESCE(MAX(progress.last_read_at), m.last_read_at) AS last_activity
     FROM manga m
     LEFT JOIN chapters c ON c.manga_id = m.id
+    LEFT JOIN (
+      SELECT chapter_id, MAX(page_number)::int AS max_page, MAX(read_at) AS last_read_at
+      FROM reading_history
+      ${userId ? 'WHERE user_id = $1' : ''}
+      GROUP BY chapter_id
+    ) progress ON progress.chapter_id = c.id
     GROUP BY m.id
-  `);
+  `,
+    userId ? [userId] : []
+  );
 
   const totalManga = readingStats.length;
 
@@ -81,12 +103,24 @@ export async function buildUserPreferenceProfile() {
       .slice(0, limit)
       .map(([name, score]) => ({ name, score: Number(score.toFixed(2)) }));
 
-  const globalCompletion = await queryOne(`
+  const globalCompletion = await queryOne(
+    `
     SELECT
-      COUNT(*) FILTER (WHERE is_read = true)::int AS read_chapters,
+      COUNT(*) FILTER (
+        WHERE COALESCE(c.page_count, 0) > 0 AND COALESCE(progress.max_page, 0) >= c.page_count
+      )::int AS read_chapters,
       COUNT(*)::int AS total_chapters
     FROM chapters
-  `);
+    c
+    LEFT JOIN (
+      SELECT chapter_id, MAX(page_number)::int AS max_page
+      FROM reading_history
+      ${userId ? 'WHERE user_id = $1' : ''}
+      GROUP BY chapter_id
+    ) progress ON progress.chapter_id = c.id
+  `,
+    userId ? [userId] : []
+  );
 
   const readChapters = Number(globalCompletion?.read_chapters || 0);
   const totalChapters = Number(globalCompletion?.total_chapters || 0);

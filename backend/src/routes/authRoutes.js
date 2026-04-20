@@ -5,11 +5,16 @@ import { query, queryOne, queryAll } from '../db/database.js';
 
 const router = express.Router();
 
-if (!process.env.JWT_SECRET) {
-  throw new Error('JWT_SECRET is required in production');
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  if ((process.env.NODE_ENV || 'development') === 'production') {
+    throw new Error('JWT_SECRET is required in production');
+  }
+  console.warn('[auth] JWT_SECRET is not set. Using insecure development fallback secret.');
 }
 
-const JWT_SECRET = process.env.JWT_SECRET;
+const RESOLVED_JWT_SECRET = JWT_SECRET || 'development_only_insecure_secret_change_me';
 
 // Middleware to verify JWT
 export function authenticateToken(req, res, next) {
@@ -20,7 +25,7 @@ export function authenticateToken(req, res, next) {
     return res.status(401).json({ error: 'Access token required' });
   }
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
+  jwt.verify(token, RESOLVED_JWT_SECRET, (err, user) => {
     if (err) {
       return res.status(403).json({ error: 'Invalid or expired token' });
     }
@@ -62,7 +67,7 @@ router.post('/register', async (req, res, next) => {
     // Generate token
     const token = jwt.sign(
       { id: user.id, username: user.username },
-      JWT_SECRET,
+      RESOLVED_JWT_SECRET,
       { expiresIn: '7d' }
     );
 
@@ -109,7 +114,7 @@ router.post('/login', async (req, res, next) => {
     // Generate token
     const token = jwt.sign(
       { id: user.id, username: user.username },
-      JWT_SECRET,
+      RESOLVED_JWT_SECRET,
       { expiresIn: '7d' }
     );
 
@@ -212,5 +217,9 @@ router.put('/password', authenticateToken, async (req, res, next) => {
   }
 });
 
-export default router;
+// Logout endpoint (stateless JWT). Keeps frontend flow consistent.
+router.post('/logout', authenticateToken, async (req, res) => {
+  res.json({ success: true });
+});
 
+export default router;
