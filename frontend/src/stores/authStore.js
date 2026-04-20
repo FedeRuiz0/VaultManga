@@ -1,25 +1,20 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { authApi } from '../services/api'; // <-- Usamos import nombrado
+import { authApi } from '../services/api';
 
 export const useAuthStore = create(
   persist(
     (set, get) => ({
-      user: {
-        id: 'demo-user',
-        username: 'demo',
-        email: 'demo@example.com'
-      },
+      user: null,
       token: null,
-      isAuthenticated: true,
+      isAuthenticated: false,
       isLoading: false,
       error: null,
 
       login: async (email, password) => {
         set({ isLoading: true, error: null });
         try {
-          const response = await authApi.register({ email, password });
-          // authApi.login ya devuelve JSON, asumimos { user, token }
+          const response = await authApi.login({ email, password });
           const { user, token } = response;
 
           set({
@@ -77,6 +72,7 @@ export const useAuthStore = create(
       },
 
       updateUser: (userData) => {
+        if (!get().user) return;
         set((state) => ({
           user: { ...state.user, ...userData },
         }));

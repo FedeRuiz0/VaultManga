@@ -32,11 +32,25 @@ async function request(path, options = {}) {
     signal,
   } = options;
 
+  let token = null;
+  if (typeof window !== 'undefined') {
+    try {
+      const persisted = window.localStorage.getItem('mangavault-auth');
+      if (persisted) {
+        const parsed = JSON.parse(persisted);
+        token = parsed?.state?.token || null;
+      }
+    } catch {
+      token = null;
+    }
+  }
+
   const response = await fetch(`${API_BASE}${path}`, {
     method,
     signal,
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...headers,
     },
     body: body ? JSON.stringify(body) : undefined,

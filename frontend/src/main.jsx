@@ -6,6 +6,7 @@ import App from './App';
 import './index.css';
 import { installOfflineSync } from './lib/offlineReader';
 import RealtimeBridge from './components/RealtimeBridge';
+import { useAuthStore } from './stores/authStore';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -18,6 +19,17 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+function AuthQuerySync() {
+  const userId = useAuthStore((state) => state.user?.id || null);
+  const token = useAuthStore((state) => state.token || null);
+
+  React.useEffect(() => {
+    queryClient.clear();
+  }, [userId, token]);
+
+  return null;
+}
 
 async function setupServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
@@ -58,6 +70,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <AuthQuerySync />
         <RealtimeBridge />
         <App />
       </BrowserRouter>
