@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Sparkle } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { recommendationApi } from '../services/api';
 import { getCoverUrl } from '../lib/imageUrls';
 
