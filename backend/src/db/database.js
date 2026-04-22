@@ -157,6 +157,7 @@ export async function initDatabase() {
 
     await runMigrations();
     await ensureUserFavoritesTable();
+    await ensureRecommendationFeedbackUserScope();
 
     return true;
   } catch (error) {
@@ -254,6 +255,55 @@ async function ensureUserFavoritesTable() {
 
   console.log('[db] user_favorites visibility:', finalVisibilityRows.map((row) => row.table_schema));
 }
+
+async function ensureRecommendationFeedbackUserScope() {
+  const feedbackTable = await queryOne(
+    `
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.tables
+      WHERE table_name = 'recommendation_feedback'
+    ) AS exists
+    `
+  );
+
+  if (!feedbackTable?.exists) {
+    console.warn('[db] recommendation_feedback not found. Creating runtime fallback table.');
+    await query(`
+      CREATE TABLE IF NOT EXISTS recommendation_feedback (
+        id SERIAL PRIMARY KEY,
+        user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+        feedback_type VARCHAR(50) NOT NULL,
+        value TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+  }
+
+  await query(`
+    ALTER TABLE recommendation_feedback
+    ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES users(id) ON DELETE CASCADE
+  `);
+
+  await query(`
+    CREATE INDEX IF NOT EXISTS idx_reco_feedback_user_created
+    ON recommendation_feedback(user_id, created_at DESC)
+  `);
+
+  const userIdColumn = await queryOne(
+    `
+    SELECT EXISTS (
+      SELECT 1
+      FROM information_schema.columns
+      WHERE table_name = 'recommendation_feedback'
+        AND column_name = 'user_id'
+    ) AS exists
+    `
+  );
+
+  console.log('[db] recommendation_feedback.user_id availability:', Boolean(userIdColumn?.exists));
+}
+
 
 export async function closeDatabase() {
   if (pool) {

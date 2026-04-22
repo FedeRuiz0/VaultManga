@@ -13,6 +13,11 @@ router.get('/', async (req, res, next) => {
     const result = await generateRecommendations(limit, req.user.id);
     res.json(result);
   } catch (error) {
+    console.error('[recommendations] GET / failed', {
+      userId: req.user?.id || null,
+      message: error?.message,
+      code: error?.code || null,
+    });
     next(error);
   }
 });

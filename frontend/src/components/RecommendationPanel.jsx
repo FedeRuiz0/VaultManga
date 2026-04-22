@@ -5,7 +5,7 @@ import { getCoverUrl } from '../lib/imageUrls';
 export default function RecommendationPanel() {
   const queryClient = useQueryClient();
 
-  const { data, isLoading, isError } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ['recommendations'],
     queryFn: ({ signal }) => recommendationApi.getAll({ limit: 8 }, { signal }),
     staleTime: 5 * 60_000,
@@ -28,6 +28,11 @@ export default function RecommendationPanel() {
   }
 
   if (isError) {
+    console.error('[recommendations] frontend query failed', {
+      message: error?.message || 'Unknown error',
+      status: error?.status || null,
+      payload: error?.payload || null,
+    });
     return <div className="panel-soft p-5 text-sm text-muted">Could not load recommendations.</div>;
   }
 
