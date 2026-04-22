@@ -7,7 +7,7 @@ async function getRecommendationFeedback(userId = null) {
   const rows = await queryAll(`
     SELECT feedback_type, value
     FROM recommendation_feedback
-    $(userId ? 'WHERE user_id = $1' : '')
+    ${userId ? 'WHERE user_id = $1' : ''}
     ORDER BY created_at DESC
   `,
     userId ? [userId] : []

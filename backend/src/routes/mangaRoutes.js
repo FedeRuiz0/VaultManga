@@ -143,60 +143,77 @@ router.get('/', async (req, res, next) => {
       return res.json(cached);
     }
 
-    let whereClause = 'WHERE 1=1';
-    const params = [];
-    let paramIndex = 2;
+    const conditions = [];
+    const countParams = [];
+    const dataParams = [userId];
+    let countParamIndex = 1;
+    let dataParamIndex = 2;
 
     if (search) {
-      whereClause += ` AND (
-        m.title ILIKE $${paramIndex}
-        OR m.description ILIKE $${paramIndex}
-        OR m.author ILIKE $${paramIndex}
-        OR m.artist ILIKE $${paramIndex}
+      conditions.push(`(
+        m.title ILIKE $${countParamIndex}
+        OR m.description ILIKE $${countParamIndex}
+        OR m.author ILIKE $${countParamIndex}
+        OR m.artist ILIKE $${countParamIndex}
         OR EXISTS (
           SELECT 1
           FROM unnest(COALESCE(m.alt_titles, ARRAY[]::text[])) AS alt_title
-          WHERE alt_title ILIKE $${paramIndex}
+          WHERE alt_title ILIKE $${countParamIndex}
         )
-      )`;
-      params.push(`%${search}%`);
-      paramIndex += 1;
+      )`);
+      countParams.push(`%${search}%`);
+      dataParams.push(`%${search}%`);
+      countParamIndex += 1;
+      dataParamIndex += 1;
     }
 
     if (status) {
-      whereClause += ` AND m.status = $${paramIndex}`;
-      params.push(status);
-      paramIndex += 1;
+      conditions.push(`m.status = $${countParamIndex}`);
+      countParams.push(status);
+      dataParams.push(status);
+      countParamIndex += 1;
+      dataParamIndex += 1;
     }
 
     if (favorites && userId) {
-      whereClause += ` AND EXISTS (
+      conditions.push(`EXISTS (
         SELECT 1
         FROM user_favorites uf
         WHERE uf.manga_id = m.id
-          AND uf.user_id = $${paramIndex}
-      )`;
-      params.push(userId);
-      paramIndex += 1;
+         AND uf.user_id = $${countParamIndex}
+      )`);
+      countParams.push(userId);
+      dataParams.push(userId);
+      countParamIndex += 1;
+      dataParamIndex += 1;
     } else if (favorites) {
-      whereClause += ' AND 1 = 0';
+      conditions.push('1 = 0');
     }
 
     if (incomplete) {
-      whereClause += ' AND m.is_incomplete = true';
+      conditions.push('m.is_incomplete = true');
     }
 
     if (genre) {
-       whereClause += ` AND m.genre::jsonb ? $${paramIndex}`;
-      params.push(genre);
-      paramIndex += 1;
+       conditions.push(`m.genre::jsonb ? $${countParamIndex}`);
+      countParams.push(genre);
+      dataParams.push(genre);
+      countParamIndex += 1;
+      dataParamIndex += 1;
     }
 
     if (year) {
-      whereClause += ` AND m.year = $${paramIndex}`;
-      params.push(year);
-      paramIndex += 1;
+      conditions.push(`m.year = $${countParamIndex}`);
+      countParams.push(year);
+      dataParams.push(year);
+      countParamIndex += 1;
+      dataParamIndex += 1;
     }
+
+    const countWhereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const dataWhereClause = countWhereClause
+      ? countWhereClause.replace(/\$(\d+)/g, (_, n) => `$${Number(n) + 1}`)
+      : '';
 
     const allowedSortColumns = ['title', 'created_at', 'updated_at', 'last_read_at', 'year'];
     const safeSort = allowedSortColumns.includes(sort) ? sort : 'last_read_at';
@@ -215,14 +232,14 @@ router.get('/', async (req, res, next) => {
       `
       SELECT COUNT(*)::int AS total
       FROM manga m
-      ${whereClause}
+      ${countWhereClause}
       `,
-      [userId, ...params]
+      countParams
     );
 
     const total = countResult?.total || 0;
 
-    params.push(limit, offset);
+    dataParams.push(limit, offset);
 
     const manga = await queryAll(
       `
@@ -265,11 +282,11 @@ router.get('/', async (req, res, next) => {
         ) progress ON progress.chapter_id = ch.id
         GROUP BY ch.manga_id
       ) c ON m.id = c.manga_id
-      ${whereClause}
+      ${dataWhereClause}
       ORDER BY ${orderClause}
-      LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+      LIMIT $${dataParamIndex} OFFSET $${dataParamIndex + 1}
       `,
-      [userId, ...params]
+      dataParams
     );
 
     const result = {
