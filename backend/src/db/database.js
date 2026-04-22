@@ -11,6 +11,26 @@ const { Pool } = pg;
 
 let pool = null;
 
+function maskValue(value, visible = 2) {
+  if (!value) return '';
+  if (value.length <= visible) return '*'.repeat(value.length);
+  return `${value.slice(0, visible)}***`;
+}
+
+function getSanitizedConnectionTarget(databaseUrl, poolConfig) {
+  if (databaseUrl) {
+    try {
+      const parsed = new URL(databaseUrl);
+      return `${parsed.protocol}//${maskValue(parsed.username)}@${parsed.hostname}:${parsed.port || '5432'}/${parsed.pathname.replace(/^\//, '')}`;
+    } catch {
+      // fall through to poolConfig formatting
+    }
+  }
+
+  return `postgresql://${maskValue(poolConfig.user)}@${poolConfig.host}:${poolConfig.port}/${poolConfig.database}`;
+}
+
+
 function parseDatabaseUrl(databaseUrl) {
   if (!databaseUrl) return null;
 
@@ -108,12 +128,35 @@ export async function queryAll(text, params) {
 export async function initDatabase() {
   try {
     const dbPool = getPool();
+    const databaseUrl = process.env.DATABASE_URL;
+    const parsedUrlConfig = parseDatabaseUrl(databaseUrl);
+    const poolConfigForLog = {
+      host: parsedUrlConfig?.host || process.env.DB_HOST || 'localhost',
+      port: parsedUrlConfig?.port || Number(process.env.DB_PORT) || 5432,
+      database: parsedUrlConfig?.database || process.env.DB_NAME || 'mangavault',
+      user: parsedUrlConfig?.user || process.env.DB_USER || 'mangavault',
+    };
 
     const client = await dbPool.connect();
     await client.query('SELECT NOW()');
+    const target = await client.query(`
+      SELECT
+        current_database() AS database_name,
+        current_schema() AS schema_name,
+        current_setting('search_path') AS search_path
+    `);
     client.release();
 
+    const runtimeTarget = target.rows[0];
+    console.log('[db] Connected target:', {
+      configured: getSanitizedConnectionTarget(databaseUrl, poolConfigForLog),
+      database: runtimeTarget.database_name,
+      schema: runtimeTarget.schema_name,
+      search_path: runtimeTarget.search_path,
+    });
+
     await runMigrations();
+    await ensureUserFavoritesTable();
 
     return true;
   } catch (error) {
@@ -164,6 +207,52 @@ async function runMigrations() {
     console.error('Migration error:', error);
     throw error;
   }
+}
+
+async function ensureUserFavoritesTable() {
+  const visibilityRows = await queryAll(
+    `
+    SELECT table_schema
+    FROM information_schema.tables
+    WHERE table_name = 'user_favorites'
+    ORDER BY table_schema
+    `
+  );
+
+  if (visibilityRows.length === 0) {
+    console.warn('[db] user_favorites not found after migrations. Applying runtime hardening.');
+
+    await query(`
+      CREATE TABLE IF NOT EXISTS user_favorites (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        manga_id UUID NOT NULL REFERENCES manga(id) ON DELETE CASCADE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, manga_id)
+      )
+    `);
+
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_user_favorites_user_manga
+      ON user_favorites(user_id, manga_id)
+    `);
+
+    await query(`
+      CREATE INDEX IF NOT EXISTS idx_user_favorites_user_created
+      ON user_favorites(user_id, created_at DESC)
+    `);
+  }
+
+  const finalVisibilityRows = await queryAll(
+    `
+    SELECT table_schema
+    FROM information_schema.tables
+    WHERE table_name = 'user_favorites'
+    ORDER BY table_schema
+    `
+  );
+
+  console.log('[db] user_favorites visibility:', finalVisibilityRows.map((row) => row.table_schema));
 }
 
 export async function closeDatabase() {
