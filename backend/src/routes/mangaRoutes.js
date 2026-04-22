@@ -3,8 +3,10 @@ import { query, queryOne, queryAll } from '../db/database.js';
 import { mangaCache } from '../db/redis.js';
 import { scanMangaFolder } from '../services/mangaScanner.js';
 import mangadexService from '../services/mangadex.service.js';
+import { optionallyAuthenticateToken } from './authRoutes.js';
 
 const router = express.Router();
+router.use(optionallyAuthenticateToken);
 
 function toBoolean(value, fallback = false) {
   if (typeof value === 'boolean') return value;
@@ -99,6 +101,7 @@ router.get('/meta/genres', async (req, res, next) => {
 // Get all manga with pagination and filters
 router.get('/', async (req, res, next) => {
   try {
+    const userId = req.user?.id || null;
     const page = Number(req.query.page || 1);
     const limit = Number(req.query.limit || 20);
     const offset = (page - 1) * limit;
@@ -122,6 +125,7 @@ router.get('/', async (req, res, next) => {
     }
 
     const cacheKey = {
+      userId: userId || 'anon',
       page,
       limit,
       search,
@@ -141,7 +145,7 @@ router.get('/', async (req, res, next) => {
 
     let whereClause = 'WHERE 1=1';
     const params = [];
-    let paramIndex = 1;
+    let paramIndex = 2;
 
     if (search) {
       whereClause += ` AND (
@@ -165,8 +169,17 @@ router.get('/', async (req, res, next) => {
       paramIndex += 1;
     }
 
-    if (favorites) {
-      whereClause += ' AND m.is_favorite = true';
+    if (favorites && userId) {
+      whereClause += ` AND EXISTS (
+        SELECT 1
+        FROM user_favorites uf
+        WHERE uf.manga_id = m.id
+          AND uf.user_id = $${paramIndex}
+      )`;
+      params.push(userId);
+      paramIndex += 1;
+    } else if (favorites) {
+      whereClause += ' AND 1 = 0';
     }
 
     if (incomplete) {
@@ -174,10 +187,10 @@ router.get('/', async (req, res, next) => {
     }
 
     if (genre) {
-  whereClause += ` AND m.genre::jsonb ? $${paramIndex}`;
-  params.push(genre);
-  paramIndex += 1;
-}
+      whereClause += ` AND m.genre::jsonb ? $${paramIndex}`;
+      params.push(genre);
+      paramIndex += 1;
+    }
 
     if (year) {
       whereClause += ` AND m.year = $${paramIndex}`;
@@ -204,7 +217,7 @@ router.get('/', async (req, res, next) => {
       FROM manga m
       ${whereClause}
       `,
-      params
+      [userId, ...params]
     );
 
     const total = countResult?.total || 0;
@@ -215,6 +228,15 @@ router.get('/', async (req, res, next) => {
       `
       SELECT
         m.*,
+        CASE
+          WHEN $1::uuid IS NULL THEN FALSE
+          ELSE EXISTS (
+            SELECT 1
+            FROM user_favorites uf
+            WHERE uf.manga_id = m.id
+              AND uf.user_id = $1
+          )
+        END AS is_favorite,
         COALESCE(c.total_chapters, 0)::int AS total_chapters,
         COALESCE(c.read_chapters, 0)::int AS read_chapters,
         ROUND(
@@ -228,17 +250,26 @@ router.get('/', async (req, res, next) => {
       FROM manga m
       LEFT JOIN (
         SELECT
-          manga_id,
+          ch.manga_id,
           COUNT(*) AS total_chapters,
-          COUNT(*) FILTER (WHERE is_read) AS read_chapters
-        FROM chapters
-        GROUP BY manga_id
+          COUNT(*) FILTER (
+            WHERE COALESCE(ch.page_count, 0) > 0
+              AND COALESCE(progress.max_page, 0) >= ch.page_count
+          ) AS read_chapters
+        FROM chapters ch
+        LEFT JOIN (
+          SELECT chapter_id, MAX(page_number)::int AS max_page
+          FROM reading_history
+          WHERE user_id = $1
+          GROUP BY chapter_id
+        ) progress ON progress.chapter_id = ch.id
+        GROUP BY ch.manga_id
       ) c ON m.id = c.manga_id
       ${whereClause}
       ORDER BY ${orderClause}
       LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
       `,
-      params
+      [userId, ...params]
     );
 
     const result = {
@@ -287,16 +318,26 @@ router.get('/search', async (req, res, next) => {
 router.get('/:id', async (req, res, next) => {
   try {
     const { id } = req.params;
+    const userId = req.user?.id || null;
 
-    const cached = await mangaCache.getManga(id);
-    if (cached) {
-      return res.json(cached);
+    if (!userId) {
+      const cached = await mangaCache.getManga(id);
+      if (cached) {
+        return res.json(cached);
+      }
     }
 
     const manga = await queryOne(
       `
       SELECT
         m.*,
+        CASE
+          WHEN $2::uuid IS NULL THEN FALSE
+          ELSE EXISTS (
+            SELECT 1 FROM user_favorites uf
+            WHERE uf.manga_id = m.id AND uf.user_id = $2
+          )
+        END AS is_favorite,
         COALESCE(c.total_chapters, 0)::int AS total_chapters,
         COALESCE(c.read_chapters, 0)::int AS read_chapters,
         ROUND(
@@ -309,23 +350,34 @@ router.get('/:id', async (req, res, next) => {
       FROM manga m
       LEFT JOIN (
         SELECT
-          manga_id,
+          ch.manga_id,
           COUNT(*) AS total_chapters,
-          COUNT(*) FILTER (WHERE is_read) AS read_chapters
-        FROM chapters
-        WHERE manga_id = $1
-        GROUP BY manga_id
+          COUNT(*) FILTER (
+            WHERE COALESCE(ch.page_count, 0) > 0
+              AND COALESCE(progress.max_page, 0) >= ch.page_count
+          ) AS read_chapters
+        FROM chapters ch
+        LEFT JOIN (
+          SELECT chapter_id, MAX(page_number)::int AS max_page
+          FROM reading_history
+          WHERE user_id = $2
+          GROUP BY chapter_id
+        ) progress ON progress.chapter_id = ch.id
+        WHERE ch.manga_id = $1
+        GROUP BY ch.manga_id
       ) c ON m.id = c.manga_id
       WHERE m.id = $1
       `,
-      [id]
+      [id, userId]
     );
 
     if (!manga) {
       return res.status(404).json({ error: 'Manga not found' });
     }
 
-    await mangaCache.setManga(id, manga);
+    if (!userId) {
+      await mangaCache.setManga(id, manga);
+    }
     res.json(manga);
   } catch (error) {
     next(error);
@@ -408,7 +460,6 @@ router.put('/:id', async (req, res, next) => {
       status,
       year,
       cover_image,
-      is_favorite,
       is_incomplete,
     } = req.body;
 
@@ -424,13 +475,12 @@ router.put('/:id', async (req, res, next) => {
         status = COALESCE($8, status),
         year = COALESCE($9, year),
         cover_image = COALESCE($10, cover_image),
-        is_favorite = COALESCE($11, is_favorite),
-        is_incomplete = COALESCE($12, is_incomplete),
+        is_incomplete = COALESCE($11, is_incomplete),
         updated_at = CURRENT_TIMESTAMP
       WHERE id = $1
       RETURNING *
       `,
-      [id, title, alt_titles, description, genre, author, artist, status, year, cover_image, is_favorite, is_incomplete]
+      [id, title, alt_titles, description, genre, author, artist, status, year, cover_image, is_incomplete]
     );
 
     if (!manga) {
@@ -459,20 +509,47 @@ router.post('/import', async (req, res, next) => {
   }
 });
 
-// Toggle favorite
+// Toggle favorite (per-user)
 router.patch('/:id/favorite', async (req, res, next) => {
   try {
     const { id } = req.params;
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ error: 'Access token required' });
+    }
 
     const manga = await queryOne(
       `
-      UPDATE manga SET
-        is_favorite = NOT is_favorite,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $1
-      RETURNING *
+      WITH target AS (
+        SELECT id FROM manga WHERE id = $1
+      ),
+      removed AS (
+        DELETE FROM user_favorites uf
+        USING target t
+        WHERE uf.manga_id = t.id
+          AND uf.user_id = $2
+        RETURNING uf.manga_id
+      ),
+      inserted AS (
+        INSERT INTO user_favorites (user_id, manga_id)
+        SELECT $2, t.id
+        FROM target t
+        WHERE NOT EXISTS (SELECT 1 FROM removed)
+        RETURNING manga_id
+      )
+      SELECT
+        m.*,
+        EXISTS (
+          SELECT 1
+          FROM user_favorites uf
+          WHERE uf.user_id = $2
+            AND uf.manga_id = m.id
+        ) AS is_favorite
+      FROM manga m
+      WHERE m.id = $1
       `,
-      [id]
+      [id, userId]
     );
 
     if (!manga) {

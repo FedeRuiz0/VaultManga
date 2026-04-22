@@ -34,6 +34,24 @@ export function authenticateToken(req, res, next) {
   });
 }
 
+// Middleware opcional: adjunta req.user si el token es válido, sin bloquear la request.
+export function optionallyAuthenticateToken(req, _res, next) {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    next();
+    return;
+  }
+
+  jwt.verify(token, RESOLVED_JWT_SECRET, (err, user) => {
+    if (!err && user) {
+      req.user = user;
+    }
+    next();
+  });
+}
+
 // Register
 router.post('/register', async (req, res, next) => {
   try {
