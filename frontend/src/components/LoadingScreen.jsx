@@ -3,21 +3,21 @@ import { BookOpen } from 'lucide-react';
 
 export default function LoadingScreen() {
   return (
-    <div className="min-h-[50vh] flex flex-col items-center justify-center">
+    <div className="panel-soft min-h-[50vh] flex flex-col items-center justify-center gap-4 p-8">
       <motion.div
         animate={{ 
           rotate: 360,
-          scale: [1, 1.1, 1]
+          scale: [1, 1.08, 1],
         }}
         transition={{ 
           rotate: { duration: 2, repeat: Infinity, ease: "linear" },
-          scale: { duration: 1, repeat: Infinity }
+          scale: { duration: 1.1, repeat: Infinity },
         }}
-        className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary-500 to-accent-500 flex items-center justify-center mb-4"
+        className="flex h-16 w-16 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,var(--primary),var(--secondary))] shadow-[0_14px_30px_rgba(124,58,237,0.25)]"
       >
-        <BookOpen className="w-8 h-8 text-white" />
+        <BookOpen className="h-8 w-8 text-white" />
       </motion.div>
-      <p className="text-gray-400 animate-pulse">Loading...</p>
+      <p className="animate-pulse text-sm text-muted">Loading your vault...</p>
     </div>
   );
 }

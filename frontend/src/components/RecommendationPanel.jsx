@@ -1,4 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
+import { Sparkle } from 'lucide-react';
 import { recommendationApi } from '../services/api';
 import { getCoverUrl } from '../lib/imageUrls';
 
@@ -24,7 +26,7 @@ export default function RecommendationPanel() {
   });
 
   if (isLoading) {
-    return <div className="panel-soft p-5 text-sm text-muted">Loading recommendations...</div>;
+     return <div className="empty-state"><p className="text-sm text-muted">Loading recommendations...</p></div>;
   }
 
   if (isError) {
@@ -33,27 +35,30 @@ export default function RecommendationPanel() {
       status: error?.status || null,
       payload: error?.payload || null,
     });
-    return <div className="panel-soft p-5 text-sm text-muted">Could not load recommendations.</div>;
+    return <div className="empty-state"><p className="text-sm text-muted">Could not load recommendations.</p></div>;
   }
 
   const recommendations = data?.recommendations || [];
 
   if (recommendations.length === 0) {
-    return <div className="panel-soft p-5 text-sm text-muted">No recommendations yet.</div>;
+    return <div className="empty-state"><p className="text-sm text-muted">No recommendations yet.</p></div>;
   }
 
   return (
     <section className="space-y-4">
-      <div>
+      <div className="flex items-center justify-between gap-3">
+        <div>
         <h2 className="section-title">Recommended for you</h2>
         <p className="section-subtitle">
           Adaptive recommendations based on your reading behavior.
         </p>
+        </div>
+        <span className="soft-badge hidden sm:inline-flex"><Sparkles className="h-3.5 w-3.5" />Personalized</span>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {recommendations.map((item) => (
-          <article key={item.id} className="panel-soft p-4">
+          <article key={item.id} className="panel-soft p-4 transition-all duration-300 hover:-translate-y-1 hover:border-[color:var(--ring)]/60">
             <div className="mb-3 overflow-hidden rounded-2xl bg-[var(--surface-2)]">
               {item.id ? (
                 <img
@@ -66,7 +71,7 @@ export default function RecommendationPanel() {
               )}
             </div>
 
-            <h3 className="text-sm font-semibold text-[var(--text)]">{item.title}</h3>
+            <Link to={`/manga/${item.id}`} className="text-sm font-semibold text-[var(--text)] transition hover:text-[var(--primary)]">{item.title}</Link>
 
             <p className="mt-2 text-xs text-muted">
               Score {item.recommendation_score} • Confidence {Math.round((item.confidence || 0) * 100)}%

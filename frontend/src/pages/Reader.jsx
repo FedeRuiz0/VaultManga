@@ -805,7 +805,7 @@ export default function Reader() {
                     Offline mode
                   </div>
                 ) : (
-                  <div className="hidden items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-xs text-muted sm:flex">
+                  <div className="status-pill hidden sm:inline-flex">
                     <BookOpen className="h-3.5 w-3.5" />
                     <span>
                       Page {Math.min(currentPage + 1, totalPages)} / {totalPages}

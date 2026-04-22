@@ -213,7 +213,7 @@ export default function MangaDetail() {
     <div className="min-h-screen space-y-8">
       <button
         onClick={() => navigate(-1)}
-        className="inline-flex items-center gap-2 text-muted transition hover:text-[var(--text)]"
+        className="ghost-button gap-2 px-4 py-2 text-sm"
       >
         <ArrowLeft className="h-5 w-5" />
         Back
@@ -275,7 +275,7 @@ export default function MangaDetail() {
               </button>
             </div>
 
-            <div className="mt-5 flex flex-wrap gap-3 text-sm text-muted">
+            <div className="mt-5 flex flex-wrap gap-2.5 text-sm text-muted">
               {manga.author ? (
                 <span>
                   <span className="font-medium text-[var(--text)]">Author:</span>{' '}

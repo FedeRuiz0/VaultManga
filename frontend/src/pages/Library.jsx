@@ -277,7 +277,7 @@ export default function Library() {
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search manga..."
-            className="w-full rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--text)] outline-none transition focus:border-[var(--primary)]"
+            className="field-input"
           />
 
           <select
@@ -286,7 +286,7 @@ export default function Library() {
               setSelectedStatus(e.target.value);
               setPage(1);
             }}
-            className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--text)] outline-none"
+            className="field-input"
           >
             <option value="">All status</option>
             <option value="ongoing">Ongoing</option>
@@ -301,7 +301,7 @@ export default function Library() {
               setSelectedGenre(e.target.value);
               setPage(1);
             }}
-            className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--text)] outline-none"
+            className="field-input"
           >
             <option value="">All genres</option>
             {availableGenres.map((genre) => (
@@ -317,7 +317,7 @@ export default function Library() {
               setSelectedYear(e.target.value);
               setPage(1);
             }}
-            className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--text)] outline-none"
+            className="field-input"
           >
             <option value="">All years</option>
             {yearOptions.map((year) => (
@@ -334,7 +334,7 @@ export default function Library() {
                 setSort(e.target.value);
                 setPage(1);
               }}
-              className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm text-[var(--text)] outline-none"
+              className="field-input"
             >
               <option value="last_read_at">Last read</option>
               <option value="title">Title</option>
@@ -349,7 +349,7 @@ export default function Library() {
                 setOrder((prev) => (prev === 'DESC' ? 'ASC' : 'DESC'));
                 setPage(1);
               }}
-              className="rounded-2xl border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-sm font-medium text-[var(--text)] transition hover:opacity-90"
+              className="field-input font-medium"
             >
               {order === 'DESC' ? 'Desc' : 'Asc'}
             </button>
@@ -399,7 +399,7 @@ export default function Library() {
       </section>
 
       {mangaQuery.isFetching ? (
-        <div className="text-sm text-muted">Refreshing library…</div>
+        <div className="status-pill w-fit">Refreshing library…</div>
       ) : null}
 
       {genresQuery.isError ? (
@@ -409,7 +409,7 @@ export default function Library() {
       ) : null}
 
       {mangaList.length === 0 ? (
-        <div className="panel-soft p-8 text-center text-muted">
+        <div className="empty-state">
           No manga found with the current filters.
         </div>
       ) : (

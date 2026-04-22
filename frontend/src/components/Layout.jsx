@@ -183,7 +183,7 @@ export default function Layout({ children }) {
               <Menu className="h-5 w-5" />
             </button>
 
-            <div className="hidden items-center gap-2 rounded-full px-3 py-2 text-sm text-muted sm:flex">
+            <div className="hidden items-center gap-2 rounded-full border border-[var(--border)] bg-[var(--surface-2)] px-3 py-2 text-sm text-muted xl:flex">
               <Search className="h-4 w-4" />
               <span>Search manga, authors, tags...</span>
             </div>
@@ -198,12 +198,7 @@ export default function Layout({ children }) {
               />
             </div>
 
-            <button
-              type="button"
-              className="icon-chip hidden sm:flex"
-              onClick={toggleTheme}
-              aria-label="Toggle theme"
-            >
+            <button type="button" className="icon-chip hidden sm:flex" onClick={toggleTheme} aria-label="Toggle theme">
               {effectiveTheme === 'dark' ? (
                 <Sun className="h-4 w-4" />
               ) : (
@@ -215,11 +210,7 @@ export default function Layout({ children }) {
               <Bell className="h-4 w-4" />
             </button>
 
-            <button
-              type="button"
-              className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,var(--primary),var(--secondary))] text-white shadow-lg"
-              aria-label="Quick action"
-            >
+            <button type="button" className="hidden h-11 w-11 items-center justify-center rounded-2xl bg-[linear-gradient(135deg,var(--primary),var(--secondary))] text-white shadow-lg md:flex" aria-label="Quick action">
               <ChevronLeft className="h-4 w-4 rotate-180" />
             </button>
 
@@ -229,7 +220,7 @@ export default function Layout({ children }) {
           </div>
         </header>
 
-        <main className="px-4 pb-6 pt-6 lg:px-6">
+        <main className="px-4 pb-8 pt-6 lg:px-6">
           {children}
         </main>
       </div>

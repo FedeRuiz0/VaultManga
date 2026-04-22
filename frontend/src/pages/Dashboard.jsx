@@ -209,7 +209,7 @@ export default function Dashboard() {
 
   if (overviewQuery.isError) {
     return (
-      <div className="panel-soft p-6 text-sm text-red-500">
+      <div className="empty-state text-sm text-red-500">
         {overviewQuery.error?.message || 'Failed to load dashboard'}
       </div>
     );
@@ -277,7 +277,7 @@ export default function Dashboard() {
             </div>
 
             {continueReading.length === 0 ? (
-              <div className="panel-soft flex min-h-[280px] items-center justify-center p-8 text-center text-muted">
+              <div className="empty-state min-h-[280px]">
                 You have no active reading sessions yet.
               </div>
             ) : (
@@ -313,7 +313,7 @@ export default function Dashboard() {
         </div>
 
         {recentlyRead.length === 0 ? (
-          <div className="panel-soft p-8 text-center text-muted">
+          <div className="empty-state">
             No recent reading activity yet.
           </div>
         ) : (
@@ -345,7 +345,7 @@ export default function Dashboard() {
         </div>
 
         {recentlyAdded.length === 0 ? (
-          <div className="panel-soft p-8 text-center text-muted">
+          <div className="empty-state">
             No recently added manga yet.
           </div>
         ) : (

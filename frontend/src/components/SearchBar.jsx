@@ -117,10 +117,10 @@ export default function SearchBar({
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 6 }}
-            className="panel-soft absolute left-0 right-0 top-[calc(100%+0.75rem)] z-30 overflow-hidden"
+            className="panel-soft absolute left-0 right-0 top-[calc(100%+0.75rem)] z-30 overflow-hidden border-[color:var(--ring)]/40"
           >
             {loading ? (
-              <div className="px-4 py-4 text-sm text-muted">Searching...</div>
+              <div className="px-4 py-4 text-sm text-muted">Searching manga...</div>
             ) : suggestions.length > 0 ? (
               <div className="max-h-80 overflow-y-auto scrollbar-soft p-2">
                 {suggestions.map((item) => (
@@ -138,7 +138,7 @@ export default function SearchBar({
                       />
                     </div>
 
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-[var(--text)]">
                         {item.title}
                       </p>
@@ -148,6 +148,8 @@ export default function SearchBar({
                         </p>
                       ) : null}
                     </div>
+
+                    <span className="status-pill hidden sm:inline-flex">Open</span>
                   </Link>
                 ))}
               </div>

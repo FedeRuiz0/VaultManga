@@ -178,6 +178,12 @@ select {
     border: 1px solid var(--border);
     box-shadow: var(--shadow-soft);
     border-radius: 999px;
+    transition: border-color 180ms ease, box-shadow 180ms ease, background-color 180ms ease;
+  }
+
+  .search-shell:focus-within {
+    border-color: var(--ring);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 45%, transparent), var(--shadow-soft);
   }
 
   .accent-button {
@@ -200,6 +206,34 @@ select {
 
   .ghost-button:hover {
     transform: translateY(-1px);
+    background: color-mix(in srgb, var(--surface-2) 80%, var(--bg-elevated));
+  }
+
+  .field-input {
+    @apply w-full rounded-2xl px-4 py-3 text-sm outline-none transition;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+  }
+
+  .field-input::placeholder {
+    color: var(--muted-2);
+  }
+
+  .field-input:focus {
+    border-color: var(--ring);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 45%, transparent);
+  }
+
+  .empty-state {
+    @apply panel-soft flex min-h-[180px] flex-col items-center justify-center gap-2 p-8 text-center;
+  }
+
+  .status-pill {
+    @apply inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--muted);
   }
 
   .progress-track {

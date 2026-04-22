@@ -30,7 +30,7 @@ function MangaCard({ manga, showProgress = false }) {
 
   return (
     <Link to={`/manga/${manga.id}`} className="group block">
-      <article className="panel-soft overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow)]">
+      <article className="panel-soft overflow-hidden transition-all duration-300 hover:-translate-y-1 hover:border-[color:var(--ring)]/70 hover:shadow-[var(--shadow)]">
         <div className="relative aspect-[0.78] overflow-hidden rounded-[20px] bg-[var(--surface-2)]">
           <ProgressiveImage
             src={getCoverUrl(manga.id)}
@@ -76,7 +76,7 @@ function MangaCard({ manga, showProgress = false }) {
               {manga.title}
             </h3>
 
-            <div className="mt-2 flex items-center justify-between text-xs text-muted">
+            <div className="mt-2 flex items-center justify-between text-xs text-muted-2">
               <span>{manga.year || 'Unknown year'}</span>
               <span>{totalChapters || 0} chapters</span>
             </div>
