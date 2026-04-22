@@ -3,12 +3,15 @@ import { buildUserPreferenceProfile } from './userProfileBuilder.js';
 import { filterRecommendationCandidates } from './ruleEngine.js';
 import { scoreCandidateManga } from './scoringEngine.js';
 
-async function getRecommendationFeedback() {
+async function getRecommendationFeedback(userId = null) {
   const rows = await queryAll(`
     SELECT feedback_type, value
     FROM recommendation_feedback
+    $(userId ? 'WHERE user_id = $1' : '')
     ORDER BY created_at DESC
-  `);
+  `,
+    userId ? [userId] : []
+  );
 
   const feedback = {
     blocked_manga_ids: [],
@@ -34,16 +37,34 @@ async function getRecommendationFeedback() {
 export async function generateRecommendations(limit = 12, userId = null) {
   const [profile, feedback, mangaList] = await Promise.all([
     buildUserPreferenceProfile(userId),
-    getRecommendationFeedback(),
-    queryAll(`
+    getRecommendationFeedback(userId),
+    queryAll(
+      `
       SELECT
         m.*,
+        EXISTS (
+          SELECT 1
+          FROM user_favorites uf
+          WHERE uf.user_id = $1
+            AND uf.manga_id = m.id
+        ) AS is_favorite,
         COUNT(c.id)::int AS total_chapters,
-        COUNT(*) FILTER (WHERE c.is_read = true)::int AS read_chapters
+        COUNT(*) FILTER (
+          WHERE COALESCE(c.page_count, 0) > 0
+            AND COALESCE(progress.max_page, 0) >= c.page_count
+        )::int AS read_chapters
       FROM manga m
       LEFT JOIN chapters c ON c.manga_id = m.id
+      LEFT JOIN (
+        SELECT chapter_id, MAX(page_number)::int AS max_page
+        FROM reading_history
+        WHERE user_id = $1
+        GROUP BY chapter_id
+      ) progress ON progress.chapter_id = c.id
       GROUP BY m.id
-    `),
+    `,
+      [userId]
+    ),
   ]);
 
   const candidates = filterRecommendationCandidates(mangaList);

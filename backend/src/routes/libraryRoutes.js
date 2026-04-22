@@ -54,7 +54,11 @@ router.get('/overview', async (req, res, next) => {
       )
       SELECT
         (SELECT COUNT(*)::int FROM manga) as total_manga,
-        (SELECT COUNT(*)::int FROM manga WHERE is_favorite = true) as favorites,
+        (
+          SELECT COUNT(*)::int
+          FROM user_favorites
+          WHERE user_id = $1
+        ) as favorites,
         (SELECT COUNT(*)::int FROM manga WHERE is_incomplete = true) as incomplete,
         (SELECT COUNT(*)::int FROM chapters) as total_chapters,
         (
@@ -192,12 +196,13 @@ router.get('/overview', async (req, res, next) => {
     `);
 
     const favorites = await queryAll(`
-      SELECT *
-      FROM manga
-      WHERE is_favorite = true
+      SELECT m.*, true AS is_favorite
+      FROM user_favorites uf
+      JOIN manga m ON m.id = uf.manga_id
+      WHERE uf.user_id = $1
       ORDER BY updated_at DESC, id ASC
       LIMIT 10
-    `);
+     `, [userId]);
 
     res.json({
       stats: overview,

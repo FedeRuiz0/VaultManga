@@ -17,14 +17,14 @@ export async function buildUserPreferenceProfile(userId = null) {
   const scopedFavoritesSql = userId
     ? `
       SELECT DISTINCT m.id, m.title, m.genre, m.status, m.year, m.author, m.artist
-      FROM manga m
-      JOIN reading_history rh ON rh.manga_id = m.id
-      WHERE rh.user_id = $1
+      FROM user_favorites uf
+      JOIN manga m ON m.id = uf.manga_id
+      WHERE uf.user_id = $1
     `
     : `
       SELECT id, title, genre, status, year, author, artist
       FROM manga
-      WHERE is_favorite = true
+      WHERE false
     `;
 
   const favorites = await queryAll(`

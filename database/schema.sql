@@ -133,6 +133,18 @@ CREATE TABLE bookmarks (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Per-user favorites bridge (replaces global manga.is_favorite for runtime logic)
+CREATE TABLE user_favorites (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    manga_id UUID NOT NULL REFERENCES manga(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, manga_id)
+);
+
+CREATE INDEX idx_user_favorites_user_manga ON user_favorites(user_id, manga_id);
+CREATE INDEX idx_user_favorites_manga ON user_favorites(manga_id);
+
 -- Manga statistics (cached/precomputed)
 CREATE TABLE manga_stats (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

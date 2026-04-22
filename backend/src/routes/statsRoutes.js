@@ -78,16 +78,22 @@ router.get('/reading', async (req, res, next) => {
 
 router.get('/genres', async (req, res, next) => {
   try {
-    const genres = await queryAll(`
+    const userId = req.user.id;
+    const genres = await queryAll(
+      `
       SELECT
-        genre,
+      g.genre,
         COUNT(*)::int as manga_count,
-        COUNT(*) FILTER (WHERE is_favorite)::int as favorites_count
-      FROM manga, UNNEST(genre) as genre
-      WHERE genre IS NOT NULL AND genre != ''
-      GROUP BY genre
+        COUNT(*) FILTER (WHERE uf.user_id = $1)::int as favorites_count
+      FROM manga m
+      CROSS JOIN LATERAL UNNEST(m.genre) AS g(genre)
+      LEFT JOIN user_favorites uf ON uf.manga_id = m.id
+      WHERE g.genre IS NOT NULL AND g.genre != ''
+      GROUP BY g.genre
       ORDER BY manga_count DESC
-    `);
+    `,
+      [userId]
+    );
 
     res.json(genres);
   } catch (error) {
