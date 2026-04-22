@@ -161,6 +161,51 @@ test('auth: register/login and protected routes', async (t) => {
 
   const protectedRes = await api('/api/v1/library/overview');
   assert.equal(protectedRes.status, 401);
+
+  const logoutRes = await api('/api/v1/auth/logout', {
+    method: 'POST',
+    token,
+  });
+  assert.equal(logoutRes.status, 200);
+  assert.equal(logoutRes.data?.success, true);
+});
+
+test('favorites are strictly per-user across manga list/detail/dashboard', async (t) => {
+  if (!dbReady) {
+    t.skip('Database not available');
+    return;
+  }
+
+  const userA = await registerAndLogin();
+  const userB = await registerAndLogin();
+
+  const toggleA = await api(`/api/v1/manga/${fixtureMangaId}/favorite`, {
+    method: 'PATCH',
+    token: userA.token,
+  });
+  assert.equal(toggleA.status, 200);
+  assert.equal(toggleA.data?.is_favorite, true);
+
+  const listA = await api('/api/v1/manga?favorites=true', { token: userA.token });
+  const listB = await api('/api/v1/manga?favorites=true', { token: userB.token });
+  assert.equal(listA.status, 200);
+  assert.equal(listB.status, 200);
+  assert.ok((listA.data?.data || []).some((m) => m.id === fixtureMangaId));
+  assert.equal((listB.data?.data || []).some((m) => m.id === fixtureMangaId), false);
+
+  const detailA = await api(`/api/v1/manga/${fixtureMangaId}`, { token: userA.token });
+  const detailB = await api(`/api/v1/manga/${fixtureMangaId}`, { token: userB.token });
+  assert.equal(detailA.status, 200);
+  assert.equal(detailB.status, 200);
+  assert.equal(detailA.data?.is_favorite, true);
+  assert.equal(detailB.data?.is_favorite, false);
+
+  const overviewA = await api('/api/v1/library/overview', { token: userA.token });
+  const overviewB = await api('/api/v1/library/overview', { token: userB.token });
+  assert.equal(overviewA.status, 200);
+  assert.equal(overviewB.status, 200);
+  assert.ok((overviewA.data?.favorites || []).some((m) => m.id === fixtureMangaId));
+  assert.equal((overviewB.data?.favorites || []).some((m) => m.id === fixtureMangaId), false);
 });
 
 test('user isolation: progress/history/settings remain isolated', async (t) => {

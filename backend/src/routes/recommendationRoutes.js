@@ -28,11 +28,15 @@ router.get('/profile', async (req, res, next) => {
 
 router.get('/feedback', async (req, res, next) => {
   try {
-    const rows = await queryAll(`
+    const rows = await queryAll(
+      `
       SELECT *
       FROM recommendation_feedback
+      WHERE user_id = $1
       ORDER BY created_at DESC
-    `);
+    `,
+      [req.user.id]
+    );
     res.json(rows);
   } catch (error) {
     next(error);
@@ -54,15 +58,16 @@ router.post('/feedback', async (req, res, next) => {
 
     const row = await query(
       `
-      INSERT INTO recommendation_feedback (feedback_type, value)
-      VALUES ($1, $2)
+      INSERT INTO recommendation_feedback (user_id, feedback_type, value)
+      VALUES ($1, $2, $3)
       RETURNING *
       `,
-      [feedback_type, value]
+      [req.user.id, feedback_type, value]
     );
 
     emitRecommendationsUpdated({
       type: 'feedback',
+      user_id: req.user.id,
       feedback_type,
       value,
     });
