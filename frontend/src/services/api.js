@@ -1,6 +1,4 @@
-const API_BASE =
-  import.meta.env.VITE_API_BASE_URL ||
-  'https://vaultmanga-production.up.railway.app/api/v1';
+const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
 function buildQuery(params = {}) {
   const searchParams = new URLSearchParams();

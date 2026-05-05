@@ -3,7 +3,12 @@ import { io } from 'socket.io-client';
 let socket = null;
 
 function resolveSocketUrl() {
-  return import.meta.env.VITE_SOCKET_URL || 'https://vaultmanga-production.up.railway.app';
+  if (import.meta.env.VITE_SOCKET_URL) return import.meta.env.VITE_SOCKET_URL;
+  if (import.meta.env.VITE_API_BASE_URL) {
+    return import.meta.env.VITE_API_BASE_URL.replace(/\/api\/v1\/?$/, '');
+  }
+  if (typeof window !== 'undefined') return window.location.origin;
+  return undefined;
 }
 
 function resolveAuthToken() {

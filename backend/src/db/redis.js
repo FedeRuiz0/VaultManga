@@ -1,11 +1,17 @@
 import { createClient } from 'redis';
 
 let redisClient = null;
+let redisEnabled = true;
 
 export async function initRedis() {
   if (redisClient) return redisClient;
 
-  const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
+  const redisUrl = process.env.REDIS_URL;
+  if (!redisUrl) {
+    redisEnabled = false;
+    console.warn('[redis] REDIS_URL not set. Running without Redis cache.');
+    return null;
+  }
   
   redisClient = createClient({
     url: redisUrl,
@@ -37,16 +43,17 @@ export async function initRedis() {
 }
 
 export function getRedis() {
-  if (!redisClient) {
-    throw new Error('Redis client not initialized. Call initRedis() first.');
-  }
+  if (!redisEnabled) return null;
+  if (!redisClient) throw new Error('Redis client not initialized. Call initRedis() first.');
   return redisClient;
 }
 
 // Cache helpers
 export async function cacheGet(key) {
   try {
-    const data = await getRedis().get(key);
+    const client = getRedis();
+    if (!client) return null;
+    const data = await client.get(key);
     return data ? JSON.parse(data) : null;
   } catch (error) {
     console.error('Cache get error:', error);
@@ -56,7 +63,9 @@ export async function cacheGet(key) {
 
 export async function cacheSet(key, value, ttlSeconds = 3600) {
   try {
-    await getRedis().setEx(key, ttlSeconds, JSON.stringify(value));
+    const client = getRedis();
+    if (!client) return false;
+    await client.setEx(key, ttlSeconds, JSON.stringify(value));
     return true;
   } catch (error) {
     console.error('Cache set error:', error);
@@ -66,7 +75,9 @@ export async function cacheSet(key, value, ttlSeconds = 3600) {
 
 export async function cacheDelete(key) {
   try {
-    await getRedis().del(key);
+    const client = getRedis();
+    if (!client) return false;
+    await client.del(key);
     return true;
   } catch (error) {
     console.error('Cache delete error:', error);
@@ -77,6 +88,7 @@ export async function cacheDelete(key) {
 export async function cacheDeletePattern(pattern) {
   try {
     const client = getRedis();
+    if (!client) return false;
 
     const pipeline = client.multi();
 
@@ -158,4 +170,3 @@ export default {
   cacheDeletePattern,
   mangaCache
 };
-

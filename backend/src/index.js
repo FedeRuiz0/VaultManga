@@ -31,8 +31,12 @@ async function startServer() {
     console.log('✅ Database connected');
 
     console.log('🔌 Connecting to Redis...');
-    await initRedis();
-    console.log('✅ Redis connected');
+    const redisClient = await initRedis();
+    if (redisClient) {
+      console.log('✅ Redis connected');
+    } else {
+      console.log('⚠️ Redis disabled (no REDIS_URL)');
+    }
 
     server.listen(PORT, () => {
       console.log(`🚀 MangaVault API running on port ${PORT}`);

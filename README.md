@@ -225,42 +225,45 @@ VITE_SOCKET_URL=
 VITE_DEV_API_PROXY_TARGET=http://localhost:3001
 ```
 
-📌 En producción:
+📌 En producción (Vercel → Render):
 
 ```
-VITE_API_BASE_URL=https://your-api.up.railway.app/api/v1
+VITE_API_BASE_URL=https://your-backend.onrender.com/api/v1
 ```
 
 ---
 
-## 🚂 Railway Deployment (Minimal Setup)
+## 🚀 Vercel + Render + Supabase Deployment (Minimal Setup)
 
 ### Backend
 
 * Crear servicio desde `backend/`
-* Agregar PostgreSQL y Redis
+* Crear Web Service en Render apuntando a `backend/`
+* Provisionar PostgreSQL en Supabase
+* (Opcional) Provisionar Redis en Upstash/Render
 * Configurar variables:
 
 ```env
 NODE_ENV=production
 PORT=${{PORT}}
 DATABASE_URL=${{Postgres.DATABASE_URL}}
-REDIS_URL=${{Redis.REDIS_URL}}
+REDIS_URL=<optional-redis-url>
 JWT_SECRET=<strong-secret>
-CORS_ORIGIN=https://your-frontend-domain
+CORS_ORIGIN=https://your-frontend.vercel.app
 ENABLE_STARTUP_BOTS=false
 ```
 
 ### Frontend
 
 ```env
-VITE_API_BASE_URL=https://your-backend-domain/api/v1
+VITE_API_BASE_URL=https://your-backend.onrender.com/api/v1
+VITE_SOCKET_URL=https://your-backend.onrender.com
 ```
 
 ✅ Verificar:
 
 ```
-https://your-backend-domain/health
+https://your-backend.onrender.com/health
 ```
 
 ---

@@ -1,6 +1,5 @@
 const STATIC_CACHE = 'mangavault-static-v1';
 const READER_CACHE = 'mangavault-reader-assets-v1';
-const BACKEND_HOST = 'vaultmanga-production.up.railway.app';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -22,11 +21,7 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
 
   const isSameOrigin = url.origin === self.location.origin;
-  const isBackendApi =
-    url.hostname === BACKEND_HOST &&
-    url.pathname.startsWith('/api/v1/images/');
-
-  if (!isSameOrigin && !isBackendApi) return;
+  if (!isSameOrigin) return;
 
   const isReaderAsset = url.pathname.startsWith('/api/v1/images/');
   if (!isReaderAsset) return;

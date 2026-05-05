@@ -158,6 +158,7 @@ export async function initDatabase() {
     await runMigrations();
     await ensureUserFavoritesTable();
     await ensureRecommendationFeedbackUserScope();
+    await validateCriticalTables();
 
     return true;
   } catch (error) {
@@ -302,6 +303,36 @@ async function ensureRecommendationFeedbackUserScope() {
   );
 
   console.log('[db] recommendation_feedback.user_id availability:', Boolean(userIdColumn?.exists));
+}
+
+async function validateCriticalTables() {
+  const criticalTables = [
+    'user_favorites',
+    'reading_history',
+    'reading_sessions',
+    'recommendations',
+    'recommendation_feedback',
+    'user_preferences',
+  ];
+
+  const rows = await queryAll(
+    `
+    SELECT table_name
+    FROM information_schema.tables
+    WHERE table_schema = 'public'
+      AND table_name = ANY($1::text[])
+    `,
+    [criticalTables]
+  );
+
+  const existing = new Set(rows.map((row) => row.table_name));
+  const missing = criticalTables.filter((tableName) => !existing.has(tableName));
+
+  if (missing.length > 0) {
+    throw new Error(`[db] Missing critical tables: ${missing.join(', ')}`);
+  }
+
+  console.log('[db] Critical tables verified:', criticalTables.join(', '));
 }
 
 
